@@ -28,6 +28,9 @@
         kills: document.getElementById('kills'),
         enemies: document.getElementById('enemies'),
         fps: document.getElementById('fps'),
+        combo: document.getElementById('combo'),
+        rage: document.getElementById('rage'),
+        crit: document.getElementById('crit'),
         xpfill: document.getElementById('xpfill'),
         xptxt: document.getElementById('xptxt'),
         event: document.getElementById('event'),
@@ -42,6 +45,8 @@
     const howBtn = document.getElementById('howBtn');
     const resetBtn = document.getElementById('resetBtn');
     const howBox = document.getElementById('how');
+    const diffRow = document.getElementById('diffRow');
+    const diffBtns = [...document.querySelectorAll('.diffBtn')];
 
     const mobile = document.getElementById('mobile');
     const stick = document.getElementById('stick');
@@ -94,6 +99,107 @@
     ];
     const discoveredLandmarks = new Set();
 
+    // ====== Config / Mechanics ======
+    const CONFIG = {
+        limits: {
+            maxCritChance: 0.4,
+        },
+        combo: {
+            baseWindow: 1.2,
+            xpPerStack: 0.02,
+            xpMulCap: 2.3,
+            rageGainPerStack: 0.05,
+            rageGainPerStackCap: 1.2,
+            explosionEvery: 5,
+            bigDropEvery: 15,
+            smallExplosionRadius: 88,
+            smallExplosionDamage: 72,
+            smallBonusXp: 5,
+            bigExplosionRadius: 130,
+            bigExplosionDamage: 145,
+            bigBonusXp: 16,
+            critBuffOnBig: 0.05,
+            critBuffDuration: 4,
+            shakeOnBig: { mag: 8, duration: 0.18 },
+        },
+        rage: {
+            gainFromKill: 7.2,
+            gainFromDamage: 4.4,
+            gainFromDamageBase: 0.65,
+            gainFromDamagePerPoint: 0.06,
+            passiveDecayRate: 2.8,
+            shakePulseMag: 2.4,
+            shakePulseDuration: 0.06,
+            activateShake: { mag: 7, duration: 0.2 },
+        },
+        crit: {
+            baseChance: 0.08,
+            baseMultiplier: 1.8,
+            rageBonusChance: 0.07,
+            damageTextChance: 0.34,
+        },
+        progression: {
+            xpBase: 10,
+            xpGrowthPerLevel: 4.8,
+        },
+        difficulty: {
+            blast: {
+                label: '爽爆',
+                comboTimerMul: 1.5,
+                comboRewardMul: 1.45,
+                rageGainMul: 1.5,
+                rageDuration: 7.8,
+                rageDamageMul: 1.46,
+                rageFireRateMul: 1.42,
+                rageSpeedMul: 1.12,
+                critBonus: 0.05,
+                initialWeapons: ['spray'],
+                xpBaseMul: 0.84,
+                xpGrowthMul: 0.8,
+                enemyHpGrowthMul: 0.86,
+                enemySpeedGrowthMul: 0.88,
+                enemyDmgGrowthMul: 0.9,
+                spawnRateMul: 0.9,
+            },
+            normal: {
+                label: '中等',
+                comboTimerMul: 1,
+                comboRewardMul: 1,
+                rageGainMul: 1,
+                rageDuration: 6.2,
+                rageDamageMul: 1.36,
+                rageFireRateMul: 1.32,
+                rageSpeedMul: 1.1,
+                critBonus: 0,
+                initialWeapons: [],
+                xpBaseMul: 1,
+                xpGrowthMul: 1,
+                enemyHpGrowthMul: 1,
+                enemySpeedGrowthMul: 1,
+                enemyDmgGrowthMul: 1,
+                spawnRateMul: 1,
+            },
+            hard: {
+                label: '困难',
+                comboTimerMul: 0.7,
+                comboRewardMul: 0.84,
+                rageGainMul: 0.7,
+                rageDuration: 5.1,
+                rageDamageMul: 1.3,
+                rageFireRateMul: 1.26,
+                rageSpeedMul: 1.08,
+                critBonus: -0.03,
+                initialWeapons: [],
+                xpBaseMul: 1.12,
+                xpGrowthMul: 1.2,
+                enemyHpGrowthMul: 1.12,
+                enemySpeedGrowthMul: 1.18,
+                enemyDmgGrowthMul: 1.08,
+                spawnRateMul: 1.12,
+            },
+        },
+    };
+
     // ====== Save / meta progression ======
     function loadSave() {
         try {
@@ -107,6 +213,15 @@
         localStorage.setItem('survivors_save_v1', JSON.stringify(save));
     }
     const SAVE = loadSave();
+
+    function loadDifficulty() {
+        const key = localStorage.getItem('survivors_difficulty_v1') || 'normal';
+        if (CONFIG.difficulty[key]) return key;
+        return 'normal';
+    }
+
+    let difficultyKey = loadDifficulty();
+    let difficulty = CONFIG.difficulty[difficultyKey];
 
     // ====== Player / state ======
     const player = {
@@ -130,6 +245,8 @@
         cdMul: 1,
         projSpeedMul: 1,
         luck: 0,
+        critChance: 0,
+        critMultiplier: CONFIG.crit.baseMultiplier,
     };
 
     const cam = { x: 0, y: 0 };
@@ -168,6 +285,167 @@
     let waveCount = 0;
 
     const eventBanner = { text: '', ttl: 0, color: 'rgba(255,255,255,0.95)' };
+
+    const combo = {
+        count: 0,
+        timer: 0,
+        multiplier: 1,
+        critBuff: 0,
+        critBuffTimer: 0,
+    };
+
+    const rage = {
+        value: 0,
+        active: false,
+        timer: 0,
+        duration: 0,
+    };
+
+    const screenShake = {
+        x: 0,
+        y: 0,
+        mag: 0,
+        timer: 0,
+    };
+
+    function setDifficulty(mode, save = true) {
+        if (!CONFIG.difficulty[mode]) return;
+        difficultyKey = mode;
+        difficulty = CONFIG.difficulty[mode];
+        if (save) localStorage.setItem('survivors_difficulty_v1', mode);
+        diffBtns.forEach((btn) => {
+            btn.classList.toggle('active', btn.dataset.diff === mode);
+        });
+        if (!menu.classList.contains('hidden')) {
+            menu.querySelector('p.muted').textContent =
+                `移动躲怪 · 自动攻击 · 吃经验升级 · 三选一成长（难度：${difficulty.label} · 最佳：${fmtTime(SAVE.bestTime || 0)}）`;
+        }
+    }
+
+    diffRow?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.diffBtn');
+        if (!btn) return;
+        setDifficulty(btn.dataset.diff);
+    });
+    setDifficulty(difficultyKey, false);
+
+    function calcNextXp(level) {
+        const base = CONFIG.progression.xpBase * difficulty.xpBaseMul;
+        const growth = CONFIG.progression.xpGrowthPerLevel * difficulty.xpGrowthMul;
+        return Math.max(8, Math.floor(base + (level - 1) * growth));
+    }
+
+    function addScreenShake(mag, duration) {
+        screenShake.mag = Math.max(screenShake.mag, mag);
+        screenShake.timer = Math.max(screenShake.timer, duration);
+    }
+
+    function resetCombo() {
+        combo.count = 0;
+        combo.timer = 0;
+        combo.multiplier = 1;
+    }
+
+    function currentCritChance() {
+        let chance = player.critChance;
+        if (rage.active) chance += CONFIG.crit.rageBonusChance;
+        if (combo.critBuffTimer > 0) chance += combo.critBuff;
+        return clamp(chance, 0, CONFIG.limits.maxCritChance);
+    }
+
+    function currentRageDamageMul() {
+        return rage.active ? difficulty.rageDamageMul : 1;
+    }
+
+    function currentFireRateMul() {
+        return rage.active ? difficulty.rageFireRateMul : 1;
+    }
+
+    function currentMoveSpeedMul() {
+        return rage.active ? difficulty.rageSpeedMul : 1;
+    }
+
+    function gainRage(rawAmount) {
+        if (rage.active) return;
+        const gain = rawAmount * difficulty.rageGainMul;
+        rage.value = clamp(rage.value + gain, 0, 100);
+        if (rage.value >= 100) {
+            rage.active = true;
+            rage.duration = difficulty.rageDuration;
+            rage.timer = difficulty.rageDuration;
+            rage.value = 100;
+            announceEvent('RAGE MODE 激活！', 'rgba(255,130,120,0.98)', 2.4);
+            cinematic.flash = Math.max(cinematic.flash, 0.32);
+            addScreenShake(CONFIG.rage.activateShake.mag, CONFIG.rage.activateShake.duration);
+        }
+    }
+
+    function updateComboAndRage(dt) {
+        if (combo.timer > 0) {
+            combo.timer -= dt;
+            if (combo.timer <= 0) resetCombo();
+        }
+        if (combo.critBuffTimer > 0) {
+            combo.critBuffTimer = Math.max(0, combo.critBuffTimer - dt);
+            if (combo.critBuffTimer <= 0) combo.critBuff = 0;
+        }
+
+        if (rage.active) {
+            rage.timer = Math.max(0, rage.timer - dt);
+            rage.value = rage.duration > 0 ? (rage.timer / rage.duration) * 100 : 0;
+            if (rage.timer <= 0) {
+                rage.active = false;
+                rage.value = 0;
+                announceEvent('Rage 结束', 'rgba(255,180,150,0.95)', 1.2);
+            } else if (Math.random() < 0.35) {
+                addScreenShake(CONFIG.rage.shakePulseMag, CONFIG.rage.shakePulseDuration);
+            }
+        } else {
+            rage.value = Math.max(0, rage.value - CONFIG.rage.passiveDecayRate * dt);
+        }
+    }
+
+    function applyComboOnKill(x, y) {
+        combo.count = combo.timer > 0 ? combo.count + 1 : 1;
+        combo.timer = CONFIG.combo.baseWindow * difficulty.comboTimerMul;
+        combo.multiplier = clamp(
+            1 + combo.count * CONFIG.combo.xpPerStack * difficulty.comboRewardMul,
+            1,
+            CONFIG.combo.xpMulCap
+        );
+
+        gainRage(
+            CONFIG.rage.gainFromKill +
+            Math.min(CONFIG.combo.rageGainPerStackCap, combo.count * CONFIG.combo.rageGainPerStack)
+        );
+
+        if (combo.count % CONFIG.combo.explosionEvery === 0) {
+            explodeAt(
+                x,
+                y,
+                CONFIG.combo.smallExplosionRadius * player.areaMul,
+                CONFIG.combo.smallExplosionDamage * difficulty.comboRewardMul * player.dmgMul,
+                0.18,
+                'combo_boom'
+            );
+            spawnPickup(x, y, 'xp', Math.round(CONFIG.combo.smallBonusXp * difficulty.comboRewardMul));
+        }
+        if (combo.count % CONFIG.combo.bigDropEvery === 0) {
+            explodeAt(
+                x,
+                y,
+                CONFIG.combo.bigExplosionRadius * player.areaMul,
+                CONFIG.combo.bigExplosionDamage * difficulty.comboRewardMul * player.dmgMul,
+                0.24,
+                'combo_big'
+            );
+            spawnPickup(x, y, 'xp', Math.round(CONFIG.combo.bigBonusXp * difficulty.comboRewardMul));
+            combo.critBuff = CONFIG.combo.critBuffOnBig;
+            combo.critBuffTimer = CONFIG.combo.critBuffDuration;
+            announceEvent(`连锁 ${combo.count}！暴击临时提升`, 'rgba(255,230,160,0.98)', 1.5);
+            addScreenShake(CONFIG.combo.shakeOnBig.mag, CONFIG.combo.shakeOnBig.duration);
+        }
+    }
 
     // ====== Obstacles / map ======
     const obstacleChunks = new Map();
@@ -398,7 +676,7 @@
             update: (st, dt) => {
                 const lvl = st.lvl;
                 st.timer -= dt;
-                const cd = 0.85 * (1 - 0.05 * (lvl - 1)) * player.cdMul;
+                const cd = 0.85 * (1 - 0.05 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
                 const target = findNearestEnemy(player.x, player.y, 640);
@@ -433,7 +711,7 @@
             update: (st, dt) => {
                 const lvl = st.lvl;
                 st.timer -= dt;
-                const cd = 1.05 * (1 - 0.04 * (lvl - 1)) * player.cdMul;
+                const cd = 1.05 * (1 - 0.04 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
                 const count = 1 + (lvl >= 3 ? 1 : 0) + (lvl >= 6 ? 1 : 0);
@@ -480,7 +758,7 @@
             update: (st, dt) => {
                 const lvl = st.lvl;
                 st.timer -= dt;
-                const cd = 1.05 * (1 - 0.045 * (lvl - 1)) * player.cdMul;
+                const cd = 1.05 * (1 - 0.045 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
                 const target = findNearestEnemy(player.x, player.y, 720);
@@ -516,7 +794,7 @@
             update: (st, dt) => {
                 const lvl = st.lvl;
                 st.timer -= dt;
-                const cd = 1.85 * (1 - 0.04 * (lvl - 1)) * player.cdMul;
+                const cd = 1.85 * (1 - 0.04 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
                 const first = findNearestEnemy(player.x, player.y, 620);
@@ -558,7 +836,7 @@
             update: (st, dt) => {
                 const lvl = st.lvl;
                 st.timer -= dt;
-                const cd = 2.2 * (1 - 0.035 * (lvl - 1)) * player.cdMul;
+                const cd = 2.2 * (1 - 0.035 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
                 const target = findNearestEnemy(player.x, player.y, 720);
@@ -598,7 +876,7 @@
             update: (st, dt) => {
                 const lvl = st.lvl;
                 st.timer -= dt;
-                const cd = 1.7 * (1 - 0.035 * (lvl - 1)) * player.cdMul;
+                const cd = 1.7 * (1 - 0.035 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
                 const strikes = 1 + Math.floor((lvl + 1) / 3);
@@ -636,7 +914,7 @@
             update: (st, dt) => {
                 const lvl = st.lvl;
                 st.timer -= dt;
-                const cd = 2.35 * (1 - 0.04 * (lvl - 1)) * player.cdMul;
+                const cd = 2.35 * (1 - 0.04 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
                 const count = 1 + (lvl >= 4 ? 1 : 0) + (lvl >= 7 ? 1 : 0);
@@ -673,7 +951,7 @@
             desc: () => '飞刀进化形态：高速多向刀雨。',
             update: (st, dt) => {
                 st.timer -= dt;
-                const cd = 0.38 * player.cdMul;
+                const cd = 0.38 * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
                 const count = 8;
@@ -704,7 +982,7 @@
             desc: () => '魔杖进化形态：高伤穿透追踪球，命中爆裂。',
             update: (st, dt) => {
                 st.timer -= dt;
-                const cd = 1.15 * player.cdMul;
+                const cd = 1.15 * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
                 const target = findNearestEnemy(player.x, player.y, 760);
@@ -824,6 +1102,24 @@
             desc: (next) => `投射物速度 +12%（Lv.${next}）。`,
             apply: () => { player.projSpeedMul *= 1.12; },
         },
+        critChance: {
+            display: '暴击率',
+            tag: '被动',
+            max: 8,
+            desc: (next) => `暴击率 +2.5%（Lv.${next}）。`,
+            apply: () => {
+                player.critChance = clamp(player.critChance + 0.025, 0, CONFIG.limits.maxCritChance);
+            },
+        },
+        critPower: {
+            display: '暴击伤害',
+            tag: '被动',
+            max: 6,
+            desc: (next) => `暴击倍率 +0.12（Lv.${next}）。`,
+            apply: () => {
+                player.critMultiplier += 0.12;
+            },
+        },
     };
 
     // ====== Enemies ======
@@ -868,9 +1164,9 @@
     function spawnEnemy(type, opts = {}) {
         const def = ENEMY_DEFS[type] || ENEMY_DEFS.walker;
         const t = elapsed;
-        const hpScale = 1 + t / (def.boss ? 220 : def.elite ? 130 : 75);
-        const spScale = 1 + t / (def.boss ? 480 : 250);
-        const dmgScale = 1 + t / (def.boss ? 290 : 240);
+        const hpScale = 1 + (t / (def.boss ? 220 : def.elite ? 130 : 75)) * difficulty.enemyHpGrowthMul;
+        const spScale = 1 + (t / (def.boss ? 480 : 250)) * difficulty.enemySpeedGrowthMul;
+        const dmgScale = 1 + (t / (def.boss ? 290 : 240)) * difficulty.enemyDmgGrowthMul;
 
         let x = 0;
         let y = 0;
@@ -1095,17 +1391,42 @@
     }
 
     function enemyXpDrop(e) {
-        return irand(e.xpMin, e.xpMax);
+        const base = irand(e.xpMin, e.xpMax);
+        return Math.max(1, Math.round(base * combo.multiplier));
     }
 
-    function dealDamageToEnemy(e, dmg) {
+    function dealDamageToEnemy(e, dmg, opts = {}) {
         if (!e || e.dead) return;
-        e.hp -= dmg;
-        fx.push({ x: e.x, y: e.y, t: 0, kind: 'hit', duration: 0.24 });
+        let finalDmg = dmg * currentRageDamageMul();
+        let isCrit = false;
+        if (opts.canCrit !== false) {
+            const chance = currentCritChance();
+            if (Math.random() < chance) {
+                finalDmg *= player.critMultiplier;
+                isCrit = true;
+            }
+        }
+        finalDmg = Math.max(0.2, finalDmg);
+
+        e.hp -= finalDmg;
+        fx.push({ x: e.x, y: e.y, t: 0, kind: isCrit ? 'crit_hit' : 'hit', duration: 0.24 });
+        if ((isCrit || Math.random() < CONFIG.crit.damageTextChance) && opts.showText !== false) {
+            fx.push({
+                kind: 'dmg_text',
+                x: e.x + rand(-8, 8),
+                y: e.y - e.r - rand(4, 16),
+                vy: -rand(24, 42),
+                text: String(Math.round(finalDmg)),
+                color: isCrit ? 'rgba(255,230,140,0.96)' : 'rgba(255,255,255,0.85)',
+                t: 0,
+                duration: isCrit ? 0.65 : 0.48,
+            });
+        }
         if (e.hp > 0) return;
 
         e.dead = true;
         kills++;
+        applyComboOnKill(e.x, e.y);
 
         spawnPickup(e.x, e.y, 'xp', enemyXpDrop(e));
         if (e.elite || e.boss) {
@@ -1132,6 +1453,7 @@
         if (player.iFrames > 0) return;
         const final = Math.max(1, dmg - player.armor);
         player.hp -= final;
+        gainRage(CONFIG.rage.gainFromDamage * (CONFIG.rage.gainFromDamageBase + final * CONFIG.rage.gainFromDamagePerPoint));
         player.iFrames = 0.45;
         fx.push({ x: player.x, y: player.y, t: 0, kind: 'hurt', duration: 0.35 });
 
@@ -1147,7 +1469,7 @@
         setTimeout(() => {
             menu.classList.remove('hidden');
             menu.querySelector('p.muted').textContent =
-                `上次存活：${fmtTime(elapsed)} · 最佳：${fmtTime(SAVE.bestTime || 0)} · 击杀：${kills}`;
+                `上次存活：${fmtTime(elapsed)} · 最佳：${fmtTime(SAVE.bestTime || 0)} · 击杀：${kills} · 难度：${difficulty.label}`;
         }, 300);
     }
 
@@ -1385,17 +1707,20 @@
 
         player.xp = 0;
         player.level = 1;
-        player.nextXp = 10;
+        player.nextXp = calcNextXp(1);
 
         player.dmgMul = 1;
         player.areaMul = 1;
         player.cdMul = 1;
         player.projSpeedMul = 1;
         player.luck = 0;
+        player.critChance = clamp(CONFIG.crit.baseChance + difficulty.critBonus, 0, CONFIG.limits.maxCritChance);
+        player.critMultiplier = CONFIG.crit.baseMultiplier;
 
         weapons.clear();
         passiveLevels.clear();
         addWeapon('knife');
+        for (const w of difficulty.initialWeapons) addWeapon(w);
 
         kills = 0;
         elapsed = 0;
@@ -1420,6 +1745,17 @@
         eventBanner.text = '';
         eventBanner.ttl = 0;
         eventBanner.color = 'rgba(255,255,255,0.95)';
+        resetCombo();
+        combo.critBuff = 0;
+        combo.critBuffTimer = 0;
+        rage.value = 0;
+        rage.active = false;
+        rage.timer = 0;
+        rage.duration = 0;
+        screenShake.x = 0;
+        screenShake.y = 0;
+        screenShake.mag = 0;
+        screenShake.timer = 0;
 
         overlay.classList.add('hidden');
         rewardCinematic.classList.add('hidden');
@@ -1431,6 +1767,7 @@
     function startGame() {
         menu.classList.add('hidden');
         resetRun();
+        announceEvent(`难度：${difficulty.label}`, 'rgba(175,230,255,0.98)', 1.6);
     }
 
     startBtn.addEventListener('click', startGame);
@@ -1452,7 +1789,7 @@
         while (player.xp >= player.nextXp) {
             player.xp -= player.nextXp;
             player.level += 1;
-            player.nextXp = Math.floor(10 + (player.level - 1) * 4.8);
+            player.nextXp = calcNextXp(player.level);
             pendingLevelUps += 1;
         }
         openNextRewardPanel();
@@ -1503,6 +1840,7 @@
     function step(dt) {
         elapsed += dt;
         eventBanner.ttl = Math.max(0, eventBanner.ttl - dt);
+        updateComboAndRage(dt);
         warmObstacleChunks(player.x, player.y);
 
         if (elapsed >= nextWaveAt) {
@@ -1524,7 +1862,7 @@
 
         const input = moveInput();
         const terrainSlow = terrainSlowMultiplier(player.x, player.y, player.r);
-        const spBase = player.baseSpeed * player.speedMul;
+        const spBase = player.baseSpeed * player.speedMul * currentMoveSpeedMul();
         const dashMul = player.dash.duration > 0 ? player.dash.mult : 1;
         player.x += input.x * spBase * dashMul * terrainSlow * dt;
         player.y += input.y * spBase * dashMul * terrainSlow * dt;
@@ -1534,8 +1872,8 @@
         cam.x += (player.x - cam.x) * (1 - Math.exp(-dt * 12));
         cam.y += (player.y - cam.y) * (1 - Math.exp(-dt * 12));
 
-        const cap = Math.floor(44 + elapsed * 0.72);
-        const rate = 1.7 + elapsed / 34;
+        const cap = Math.floor((44 + elapsed * 0.72) * difficulty.spawnRateMul);
+        const rate = (1.7 + elapsed / 34) * difficulty.spawnRateMul;
         spawnAcc += dt * rate;
         while (spawnAcc >= 1) {
             spawnAcc -= 1;
@@ -1570,7 +1908,7 @@
             for (const e of enemies) {
                 if (e.dead) continue;
                 if (dist(ox, oy, e.x, e.y) < e.r + orbit.orbR) {
-                    dealDamageToEnemy(e, orbit.dps * dt);
+                    dealDamageToEnemy(e, orbit.dps * dt, { canCrit: false, showText: false });
                 }
             }
         }
@@ -1661,7 +1999,7 @@
             const n = norm(dx, dy);
 
             if (aura && n.l < aura.radius) {
-                dealDamageToEnemy(e, aura.dps * dt);
+                dealDamageToEnemy(e, aura.dps * dt, { canCrit: false, showText: false });
                 e.slow = Math.max(e.slow, aura.slow);
             }
             if (e.dead) continue;
@@ -1785,7 +2123,7 @@
                 for (const e of enemies) {
                     if (e.dead) continue;
                     if (dist(p.x, p.y, e.x, e.y) < p.r + e.r) {
-                        dealDamageToEnemy(e, p.dps * dt);
+                        dealDamageToEnemy(e, p.dps * dt, { canCrit: false, showText: false });
                         e.slow = Math.max(e.slow, 0.16);
                     }
                 }
@@ -1907,8 +2245,8 @@
     // ====== Render ======
     function worldToScreen(x, y) {
         return {
-            x: (x - cam.x) + W() / 2,
-            y: (y - cam.y) + H() / 2,
+            x: (x - cam.x) + W() / 2 + screenShake.x,
+            y: (y - cam.y) + H() / 2 + screenShake.y,
         };
     }
 
@@ -2376,7 +2714,17 @@
             return;
         }
 
-        if (f.kind === 'boom' || f.kind === 'thunder' || f.kind === 'arcane') {
+        if (f.kind === 'dmg_text') {
+            const s = worldToScreen(f.x, f.y);
+            ctx.fillStyle = f.color || 'rgba(255,255,255,0.9)';
+            ctx.font = f.kind === 'dmg_text' ? 'bold 14px system-ui, sans-serif' : '12px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(f.text || '', s.x, s.y);
+            ctx.restore();
+            return;
+        }
+
+        if (f.kind === 'boom' || f.kind === 'thunder' || f.kind === 'arcane' || f.kind === 'combo_boom' || f.kind === 'combo_big') {
             const s = worldToScreen(f.x, f.y);
             ctx.beginPath();
             ctx.arc(s.x, s.y, (f.r || 30) * (0.35 + f.t * 2.2), 0, TAU);
@@ -2384,6 +2732,10 @@
                 ? 'rgba(170,220,255,0.95)'
                 : f.kind === 'arcane'
                     ? 'rgba(205,170,255,0.95)'
+                    : f.kind === 'combo_boom'
+                        ? 'rgba(255,232,140,0.95)'
+                        : f.kind === 'combo_big'
+                            ? 'rgba(255,170,120,0.96)'
                     : 'rgba(255,190,120,0.95)';
             ctx.lineWidth = 2;
             ctx.stroke();
@@ -2396,6 +2748,8 @@
         ctx.arc(s.x, s.y, 10 + f.t * 30, 0, TAU);
         ctx.strokeStyle = f.kind === 'hurt'
             ? 'rgba(255,107,107,0.92)'
+            : f.kind === 'crit_hit'
+                ? 'rgba(255,230,140,0.95)'
             : f.kind === 'boss_hit'
                 ? 'rgba(255,140,140,0.92)'
                 : 'rgba(255,255,255,0.72)';
@@ -2566,6 +2920,9 @@
         hud.hp.textContent = `${Math.round(player.hp)} / ${Math.round(player.hpMax)}`;
         hud.kills.textContent = String(kills);
         hud.enemies.textContent = String(enemies.length);
+        hud.combo.textContent = combo.count > 0 ? `x${combo.count}` : 'x0';
+        hud.rage.textContent = rage.active ? `暴走 ${rage.timer.toFixed(1)}s` : `${Math.round(rage.value)}%`;
+        hud.crit.textContent = `${Math.round(currentCritChance() * 100)}%`;
 
         const pct = clamp(player.xp / player.nextXp, 0, 1) * 100;
         hud.xpfill.style.width = `${pct}%`;
@@ -2598,6 +2955,19 @@
         if (rewardIntro.active) {
             rewardCinematic.textContent = `宝箱开启中... 剩余 ${pendingChestRewards} 次奖励`;
         }
+
+        if (screenShake.timer > 0 || screenShake.mag > 0.1) {
+            screenShake.timer = Math.max(0, screenShake.timer - dt);
+            screenShake.mag = Math.max(0, screenShake.mag - dt * 16);
+            const m = screenShake.mag;
+            screenShake.x = rand(-m, m);
+            screenShake.y = rand(-m, m);
+        } else {
+            screenShake.x = 0;
+            screenShake.y = 0;
+            screenShake.mag = 0;
+            screenShake.timer = 0;
+        }
     }
 
     // ====== Main loop ======
@@ -2625,7 +2995,7 @@
         resetRun();
 
         menu.querySelector('p.muted').textContent =
-            `移动躲怪 · 自动攻击 · 吃经验升级 · 三选一成长（最佳：${fmtTime(SAVE.bestTime || 0)}）`;
+            `移动躲怪 · 自动攻击 · 吃经验升级 · 三选一成长（难度：${difficulty.label} · 最佳：${fmtTime(SAVE.bestTime || 0)}）`;
 
         if (isTouch) mobile.classList.remove('hidden');
     }

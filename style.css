@@ -37,6 +37,30 @@ canvas{display:block; width:100%; height:100%}
     overflow:hidden;
     text-overflow:ellipsis;
 }
+.diffWrap{
+    margin-top:12px;
+    margin-bottom:6px;
+}
+.diffRow{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-top:6px;
+}
+.diffBtn{
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.2);
+    color:rgba(255,255,255,.84);
+    padding:8px 12px;
+    border-radius:999px;
+    font-size:13px;
+}
+.diffBtn.active{
+    background:linear-gradient(90deg, rgba(95,255,212,.28), rgba(136,198,255,.3));
+    border-color:rgba(160,220,255,.65);
+    color:rgba(245,255,255,.98);
+    box-shadow:0 8px 20px rgba(0,0,0,.25);
+}
 
 #minimapWrap{
     position:absolute;

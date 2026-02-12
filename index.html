@@ -28,6 +28,9 @@
             <div class="pill"><span class="k">击杀</span><span id="kills">0</span></div>
             <div class="pill"><span class="k">怪物</span><span id="enemies">0</span></div>
             <div class="pill"><span class="k">FPS</span><span id="fps">60</span></div>
+            <div class="pill"><span class="k">连锁</span><span id="combo">x0</span></div>
+            <div class="pill"><span class="k">怒气</span><span id="rage">0%</span></div>
+            <div class="pill"><span class="k">暴击</span><span id="crit">0%</span></div>
             <div class="pill eventPill"><span class="k">事件</span><span id="event">-</span></div>
         </div>
     </div>
@@ -59,6 +62,14 @@
         <div class="menuCard">
             <h1>Survivors Web</h1>
             <p class="muted">移动躲怪 · 自动攻击 · 吃经验升级 · 三选一成长</p>
+            <div class="diffWrap">
+                <div class="k">难度模式</div>
+                <div class="diffRow" id="diffRow">
+                    <button class="diffBtn" data-diff="blast">爽爆</button>
+                    <button class="diffBtn active" data-diff="normal">中等</button>
+                    <button class="diffBtn" data-diff="hard">困难</button>
+                </div>
+            </div>
             <div class="btnRow">
                 <button id="startBtn">开始</button>
                 <button id="howBtn">玩法</button>
@@ -71,6 +82,7 @@
                     <li>精英和 Boss 会掉落宝箱，宝箱可连开多次奖励。</li>
                     <li>武器满级 + 指定被动，可在升级池中触发武器进化。</li>
                     <li>每 30 秒触发怪潮，5 分钟刷新 Boss。</li>
+                    <li>连续击杀会触发连锁奖励；怒气满后进入暴走；攻击可暴击。</li>
                     <li>右上角小地图会显示地标、敌群和 Boss 位置。</li>
                     <li>地图包含固定地标（祭坛/遗迹/尖碑等）与碰撞。</li>
                     <li>电脑：WASD/方向键，空格冲刺，P 暂停，ESC 关闭面板。</li>
