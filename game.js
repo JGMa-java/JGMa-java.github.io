@@ -1222,7 +1222,7 @@
                 const cd = 0.85 * (1 - 0.05 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
-                const target = findNearestEnemy(player.x, player.y, 640);
+                const target = findCombatEnemy(640);
                 if (!target) { st.timer = 0.15; return; }
 
                 const count = 1 + (lvl >= 4 ? 1 : 0) + (lvl >= 7 ? 1 : 0);
@@ -1304,7 +1304,7 @@
                 const cd = 1.05 * (1 - 0.045 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
-                const target = findNearestEnemy(player.x, player.y, 720);
+                const target = findCombatEnemy(720);
                 if (!target) { st.timer = 0.22; return; }
 
                 const count = 4 + Math.floor((lvl - 1) / 2);
@@ -1340,7 +1340,7 @@
                 const cd = 1.85 * (1 - 0.04 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
-                const first = findNearestEnemy(player.x, player.y, 620);
+                const first = findCombatEnemy(620);
                 if (!first) { st.timer = 0.2; return; }
 
                 const jumps = 2 + Math.floor(lvl / 2) + (lvl >= 7 ? 1 : 0);
@@ -1357,7 +1357,7 @@
                     const falloff = Math.max(0.55, 1 - i * 0.14);
                     dealDamageToEnemy(cur, dmg * falloff);
                     cur.slow = Math.max(cur.slow, 0.26);
-                    cur = findNearestEnemyFrom(cur, jumpRange, seen);
+                    cur = findCombatEnemyFrom(cur, jumpRange, seen);
                 }
 
                 fx.push({
@@ -1382,7 +1382,7 @@
                 const cd = 2.2 * (1 - 0.035 * (lvl - 1)) * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
-                const target = findNearestEnemy(player.x, player.y, 720);
+                const target = findCombatEnemy(720);
                 if (!target) { st.timer = 0.28; return; }
 
                 const count = 1 + (lvl >= 4 ? 1 : 0) + (lvl >= 7 ? 1 : 0);
@@ -1424,7 +1424,7 @@
 
                 const strikes = 1 + Math.floor((lvl + 1) / 3);
                 for (let i = 0; i < strikes; i++) {
-                    const t = pickRandomEnemy(760);
+                    const t = pickRandomCombatEnemy(760);
                     let x, y;
                     if (t) {
                         x = t.x + rand(-22, 22);
@@ -1461,7 +1461,7 @@
                 if (st.timer > 0) return;
 
                 const count = 1 + (lvl >= 4 ? 1 : 0) + (lvl >= 7 ? 1 : 0);
-                const target = findNearestEnemy(player.x, player.y, 620);
+                const target = findCombatEnemy(620);
                 for (let i = 0; i < count; i++) {
                     let a = rand(0, TAU);
                     if (target) {
@@ -1528,7 +1528,7 @@
                 const cd = 1.15 * player.cdMul / currentFireRateMul();
                 if (st.timer > 0) return;
 
-                const target = findNearestEnemy(player.x, player.y, 760);
+                const target = findCombatEnemy(760);
                 if (!target) { st.timer = 0.22; return; }
                 const base = Math.atan2(target.y - player.y, target.x - player.x);
 
@@ -1993,7 +1993,55 @@
     }
 
     // ====== Targeting ======
-    function findNearestEnemy(x, y, maxD = Infinity) {
+    function playerTargetRadius() {
+        // Use the narrower screen side as diameter: r = min(width, height) / 2.
+        return Math.max(120, Math.min(W(), H()) * 0.5);
+    }
+
+    function isWorldPointVisible(x, y, pad = 0) {
+        const sx = (x - cam.x) + W() / 2;
+        const sy = (y - cam.y) + H() / 2;
+        return sx >= -pad && sx <= W() + pad && sy >= -pad && sy <= H() + pad;
+    }
+
+    function inPlayerCombatZone(enemy) {
+        const inCircle = dist(player.x, player.y, enemy.x, enemy.y) <= playerTargetRadius();
+        if (!inCircle) return false;
+        return isWorldPointVisible(enemy.x, enemy.y, enemy.r + 8);
+    }
+
+    function findCombatEnemy(maxD = Infinity) {
+        return findNearestEnemy(
+            player.x,
+            player.y,
+            Math.min(maxD, playerTargetRadius()),
+            inPlayerCombatZone
+        );
+    }
+
+    function findCombatEnemyAt(x, y, maxD = Infinity) {
+        return findNearestEnemy(
+            x,
+            y,
+            Math.min(maxD, playerTargetRadius()),
+            inPlayerCombatZone
+        );
+    }
+
+    function findCombatEnemyFrom(from, maxD, seen) {
+        return findNearestEnemyFrom(
+            from,
+            Math.min(maxD, playerTargetRadius()),
+            seen,
+            inPlayerCombatZone
+        );
+    }
+
+    function pickRandomCombatEnemy(maxD = Infinity) {
+        return pickRandomEnemy(Math.min(maxD, playerTargetRadius()), inPlayerCombatZone);
+    }
+
+    function findNearestEnemy(x, y, maxD = Infinity, filter = null) {
         let best = null;
         let bestHp = Infinity;
         let bd = maxD;
@@ -2001,6 +2049,7 @@
             if (e.dead) continue;
             const d = dist(x, y, e.x, e.y);
             if (d > maxD) continue;
+            if (filter && !filter(e)) continue;
             if (e.hp < bestHp || (e.hp === bestHp && d < bd)) {
                 best = e;
                 bestHp = e.hp;
@@ -2010,7 +2059,7 @@
         return best;
     }
 
-    function findNearestEnemyFrom(from, maxD, seen) {
+    function findNearestEnemyFrom(from, maxD, seen, filter = null) {
         let best = null;
         let bestHp = Infinity;
         let bd = maxD;
@@ -2018,6 +2067,7 @@
             if (e.dead || seen.has(e)) continue;
             const d = dist(from.x, from.y, e.x, e.y);
             if (d > maxD) continue;
+            if (filter && !filter(e)) continue;
             if (e.hp < bestHp || (e.hp === bestHp && d < bd)) {
                 best = e;
                 bestHp = e.hp;
@@ -2027,10 +2077,11 @@
         return best;
     }
 
-    function pickRandomEnemy(maxD = Infinity) {
+    function pickRandomEnemy(maxD = Infinity, filter = null) {
         const pool = [];
         for (const e of enemies) {
             if (e.dead) continue;
+            if (filter && !filter(e)) continue;
             if (dist(player.x, player.y, e.x, e.y) <= maxD) pool.push(e);
         }
         if (!pool.length) return null;
@@ -2849,7 +2900,7 @@
                     projectiles.splice(i, 1);
                     continue;
                 }
-                const t = findNearestEnemy(p.x, p.y, 260);
+                const t = findCombatEnemyAt(p.x, p.y, 260);
                 if (t) {
                     const n = norm(t.x - p.x, t.y - p.y);
                     const v = norm(p.vx, p.vy);
@@ -2881,7 +2932,7 @@
             }
 
             if (p.homing) {
-                const t = findNearestEnemy(p.x, p.y, 560);
+                const t = findCombatEnemyAt(p.x, p.y, 560);
                 if (t) {
                     const n = norm(t.x - p.x, t.y - p.y);
                     const v = norm(p.vx, p.vy);
