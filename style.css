@@ -224,8 +224,9 @@ ul{margin:8px 0 0 18px}
     touch-action:none;
 }
 #stick{
-    position:absolute; left:14px; bottom:18px;
+    position:absolute; left:50%; bottom:18px;
     width:140px; height:140px;
+    transform:translateX(-50%);
     pointer-events:auto;
     touch-action:none;
 }
@@ -252,6 +253,17 @@ ul{margin:8px 0 0 18px}
 }
 #dashBtn{bottom:24px}
 #pauseBtn{bottom:74px}
+
+#versionTag{
+    position:absolute;
+    right:10px;
+    bottom:8px;
+    font-size:10px;
+    letter-spacing:.04em;
+    color:rgba(255,255,255,.34);
+    pointer-events:none;
+    z-index:4;
+}
 
 @media (max-width: 720px){
     #minimapWrap{

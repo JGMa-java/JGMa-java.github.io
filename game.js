@@ -1276,12 +1276,14 @@
         stick.style.left = `${x}px`;
         stick.style.top = `${y}px`;
         stick.style.bottom = 'auto';
+        stick.style.transform = 'none';
     }
 
     function resetStickPlacement() {
         stick.style.left = '';
         stick.style.top = '';
         stick.style.bottom = '';
+        stick.style.transform = '';
     }
 
     function updateStickFromPoint(clientX, clientY) {
@@ -1448,13 +1450,16 @@
     // ====== Targeting ======
     function findNearestEnemy(x, y, maxD = Infinity) {
         let best = null;
+        let bestHp = Infinity;
         let bd = maxD;
         for (const e of enemies) {
             if (e.dead) continue;
             const d = dist(x, y, e.x, e.y);
-            if (d < bd) {
-                bd = d;
+            if (d > maxD) continue;
+            if (e.hp < bestHp || (e.hp === bestHp && d < bd)) {
                 best = e;
+                bestHp = e.hp;
+                bd = d;
             }
         }
         return best;
@@ -1462,13 +1467,16 @@
 
     function findNearestEnemyFrom(from, maxD, seen) {
         let best = null;
+        let bestHp = Infinity;
         let bd = maxD;
         for (const e of enemies) {
             if (e.dead || seen.has(e)) continue;
             const d = dist(from.x, from.y, e.x, e.y);
-            if (d < bd) {
-                bd = d;
+            if (d > maxD) continue;
+            if (e.hp < bestHp || (e.hp === bestHp && d < bd)) {
                 best = e;
+                bestHp = e.hp;
+                bd = d;
             }
         }
         return best;

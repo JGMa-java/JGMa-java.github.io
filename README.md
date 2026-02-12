@@ -1,5 +1,14 @@
 
 
+### Vampire Survivors Lite  V2.2.3
+
+1. 把摇杆默认停靠改到“屏幕下方中央”；
+2. 把自动索敌从“最近”改成“范围内当前血量最低优先（同血再按距离）。
+
+### Vampire Survivors Lite  V2.2.2
+
+触屏设备体验优化
+
 ### Vampire Survivors Lite  V2.2.1
 
 爽感参数调整，降低爽感，增强中等模式爽感
