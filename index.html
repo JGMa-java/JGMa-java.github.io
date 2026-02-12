@@ -32,9 +32,15 @@
         </div>
     </div>
 
+    <div id="minimapWrap">
+        <canvas id="minimap"></canvas>
+        <div id="minimapLabel">MINIMAP</div>
+    </div>
+
     <div id="overlay" class="hidden">
         <div id="card">
             <h2 id="ovTitle">升级！选择一项</h2>
+            <div id="rewardCinematic" class="hidden"></div>
             <div id="choices"></div>
             <div class="hint">键盘：1/2/3 选择；WASD/方向键移动；空格冲刺；P 暂停</div>
         </div>
@@ -65,6 +71,8 @@
                     <li>精英和 Boss 会掉落宝箱，宝箱可连开多次奖励。</li>
                     <li>武器满级 + 指定被动，可在升级池中触发武器进化。</li>
                     <li>每 30 秒触发怪潮，5 分钟刷新 Boss。</li>
+                    <li>右上角小地图会显示地标、敌群和 Boss 位置。</li>
+                    <li>地图包含固定地标（祭坛/遗迹/尖碑等）与碰撞。</li>
                     <li>电脑：WASD/方向键，空格冲刺，P 暂停，ESC 关闭面板。</li>
                     <li>手机：左下摇杆移动，右侧按钮冲刺/暂停。</li>
                 </ul>

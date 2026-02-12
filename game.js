@@ -2,12 +2,21 @@
     // ====== Canvas / DPI ======
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
+    const minimapCanvas = document.getElementById('minimap');
+    const minimapCtx = minimapCanvas.getContext('2d');
 
     function resize() {
         const dpr = Math.max(1, window.devicePixelRatio || 1);
         canvas.width = Math.floor(canvas.clientWidth * dpr);
         canvas.height = Math.floor(canvas.clientHeight * dpr);
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const miniDpr = Math.max(1, window.devicePixelRatio || 1);
+        const miniW = Math.max(80, minimapCanvas.clientWidth);
+        const miniH = Math.max(80, minimapCanvas.clientHeight);
+        minimapCanvas.width = Math.floor(miniW * miniDpr);
+        minimapCanvas.height = Math.floor(miniH * miniDpr);
+        minimapCtx.setTransform(miniDpr, 0, 0, miniDpr, 0, 0);
     }
     window.addEventListener('resize', resize);
 
@@ -26,6 +35,7 @@
 
     const overlay = document.getElementById('overlay');
     const ovTitle = document.getElementById('ovTitle');
+    const rewardCinematic = document.getElementById('rewardCinematic');
     const choicesEl = document.getElementById('choices');
     const menu = document.getElementById('menu');
     const startBtn = document.getElementById('startBtn');
@@ -72,7 +82,17 @@
         despawnRadius: 980,
         obstacleChunk: 560,
         obstacleRange: 2,
+        minimapRange: 1050,
     };
+
+    const LANDMARKS = [
+        { id: 'altar', name: '遗忘祭坛', x: 720, y: -420, r: 54, type: 'altar', solid: true },
+        { id: 'ruins', name: '古旧遗迹', x: -860, y: 390, r: 62, type: 'ruin', solid: true },
+        { id: 'spire', name: '黑石尖碑', x: 1060, y: 220, r: 58, type: 'spire', solid: true },
+        { id: 'gate', name: '迷雾门', x: -1120, y: -760, r: 66, type: 'gate', solid: true },
+        { id: 'well', name: '月井', x: 260, y: 1090, r: 52, type: 'well', solid: true },
+    ];
+    const discoveredLandmarks = new Set();
 
     // ====== Save / meta progression ======
     function loadSave() {
@@ -129,6 +149,18 @@
     let pendingLevelUps = 0;
     let pendingChestRewards = 0;
     let currentChoices = [];
+
+    const rewardIntro = {
+        active: false,
+        timer: 0,
+        duration: 0,
+    };
+
+    const cinematic = {
+        flash: 0,
+        text: '',
+        textTTL: 0,
+    };
 
     let spawnAcc = 0;
     let nextWaveAt = 30;
@@ -247,6 +279,17 @@
             ent.x += (dx / d) * push;
             ent.y += (dy / d) * push;
         });
+        for (const lm of LANDMARKS) {
+            if (!lm.solid) continue;
+            const dx = ent.x - lm.x;
+            const dy = ent.y - lm.y;
+            const minD = radius + lm.r;
+            const d = Math.hypot(dx, dy) || 0.0001;
+            if (d >= minD) continue;
+            const push = (minD - d) + 0.1;
+            ent.x += (dx / d) * push;
+            ent.y += (dy / d) * push;
+        }
     }
 
     function isInsideSolidObstacle(x, y, radius) {
@@ -255,7 +298,21 @@
             if (hit || !ob.solid) return;
             if (dist(x, y, ob.x, ob.y) < ob.r + radius) hit = true;
         });
+        for (const lm of LANDMARKS) {
+            if (hit || !lm.solid) continue;
+            if (dist(x, y, lm.x, lm.y) < lm.r + radius) hit = true;
+        }
         return hit;
+    }
+
+    function updateLandmarkDiscovery() {
+        for (const lm of LANDMARKS) {
+            if (discoveredLandmarks.has(lm.id)) continue;
+            if (dist(player.x, player.y, lm.x, lm.y) > lm.r + 140) continue;
+            discoveredLandmarks.add(lm.id);
+            announceEvent(`发现地标：${lm.name}`, 'rgba(195,232,255,0.98)', 2.4);
+            fx.push({ kind: 'landmark_ping', x: lm.x, y: lm.y, r: lm.r, t: 0, duration: 0.9 });
+        }
     }
 
     // ====== Weapons system ======
@@ -861,6 +918,10 @@
             hitCD: 0,
             slow: 0,
             summonCd: def.summonCd || 0,
+            bossNovaCd: def.boss ? rand(2.6, 4.2) : 0,
+            bossRainCd: def.boss ? rand(4.2, 6.6) : 0,
+            bossWaveCd: def.boss ? rand(6.4, 8.2) : 0,
+            bossRot: rand(0, TAU),
             dead: false,
         });
     }
@@ -1013,6 +1074,23 @@
         weapons.delete(baseKey);
         addWeapon(evo.to);
         announceEvent(`武器进化：${evo.name}！`, 'rgba(255,240,150,0.98)', 3.2);
+        cinematic.flash = Math.max(cinematic.flash, 0.95);
+        cinematic.text = `进化达成 · ${evo.name}`;
+        cinematic.textTTL = 2.1;
+        fx.push({ kind: 'evolve_ring', x: player.x, y: player.y, r: 28, t: 0, duration: 0.9 });
+        for (let i = 0; i < 22; i++) {
+            const a = (i / 22) * TAU + rand(-0.12, 0.12);
+            const sp = rand(110, 280);
+            fx.push({
+                kind: 'evolve_spark',
+                x: player.x,
+                y: player.y,
+                vx: Math.cos(a) * sp,
+                vy: Math.sin(a) * sp,
+                t: 0,
+                duration: 0.72,
+            });
+        }
         return true;
     }
 
@@ -1080,8 +1158,11 @@
         rewardMode = mode;
         paused = true;
         overlay.classList.remove('hidden');
+        rewardCinematic.classList.add('hidden');
+        choicesEl.classList.remove('dimmed');
         if (mode === 'chest') {
             ovTitle.textContent = `宝箱奖励！选择一项（待开 ${pendingChestRewards}）`;
+            beginChestIntro();
         } else {
             ovTitle.textContent = `升级！选择一项（待升 ${pendingLevelUps}）`;
         }
@@ -1092,6 +1173,10 @@
     function closeRewardPanel() {
         inReward = false;
         rewardMode = 'none';
+        rewardIntro.active = false;
+        rewardIntro.timer = 0;
+        rewardCinematic.classList.add('hidden');
+        choicesEl.classList.remove('dimmed');
         overlay.classList.add('hidden');
         paused = false;
         setTimeout(() => {
@@ -1108,6 +1193,38 @@
         if (pendingLevelUps > 0) {
             openRewardPanel('level');
         }
+    }
+
+    function beginChestIntro() {
+        rewardIntro.active = true;
+        rewardIntro.duration = 0.72;
+        rewardIntro.timer = rewardIntro.duration;
+        choicesEl.classList.add('dimmed');
+        rewardCinematic.classList.remove('hidden');
+        rewardCinematic.textContent = `宝箱开启中... 剩余 ${pendingChestRewards} 次奖励`;
+        cinematic.flash = Math.max(cinematic.flash, 0.45);
+        for (let i = 0; i < 12; i++) {
+            const a = rand(0, TAU);
+            const sp = rand(90, 230);
+            fx.push({
+                kind: 'chest_spark',
+                x: player.x,
+                y: player.y,
+                vx: Math.cos(a) * sp,
+                vy: Math.sin(a) * sp,
+                t: 0,
+                duration: 0.55,
+            });
+        }
+    }
+
+    function updateRewardIntro(dt) {
+        if (!rewardIntro.active) return;
+        rewardIntro.timer -= dt;
+        if (rewardIntro.timer > 0) return;
+        rewardIntro.active = false;
+        rewardCinematic.classList.add('hidden');
+        choicesEl.classList.remove('dimmed');
     }
 
     function rollChoices(n, opts = {}) {
@@ -1219,6 +1336,7 @@
 
     function chooseUpgrade(i) {
         if (!inReward) return;
+        if (rewardIntro.active) return;
         const c = currentChoices[i];
         if (!c) return;
 
@@ -1250,6 +1368,7 @@
         pickups.length = 0;
         fx.length = 0;
         obstacleChunks.clear();
+        discoveredLandmarks.clear();
 
         player.x = 0;
         player.y = 0;
@@ -1286,6 +1405,12 @@
         pendingLevelUps = 0;
         pendingChestRewards = 0;
         gameOver = false;
+        rewardIntro.active = false;
+        rewardIntro.timer = 0;
+        rewardIntro.duration = 0;
+        cinematic.flash = 0;
+        cinematic.text = '';
+        cinematic.textTTL = 0;
 
         spawnAcc = 0;
         nextWaveAt = 30;
@@ -1297,6 +1422,9 @@
         eventBanner.color = 'rgba(255,255,255,0.95)';
 
         overlay.classList.add('hidden');
+        rewardCinematic.classList.add('hidden');
+        rewardCinematic.textContent = '';
+        choicesEl.classList.remove('dimmed');
         warmObstacleChunks(0, 0);
     }
 
@@ -1401,6 +1529,7 @@
         player.x += input.x * spBase * dashMul * terrainSlow * dt;
         player.y += input.y * spBase * dashMul * terrainSlow * dt;
         resolveSolidCollisions(player, player.r);
+        updateLandmarkDiscovery();
 
         cam.x += (player.x - cam.x) * (1 - Math.exp(-dt * 12));
         cam.y += (player.y - cam.y) * (1 - Math.exp(-dt * 12));
@@ -1447,6 +1576,75 @@
         }
     }
 
+    function castBossSkills(e, dt) {
+        e.bossNovaCd -= dt;
+        e.bossRainCd -= dt;
+        e.bossWaveCd -= dt;
+
+        if (e.bossNovaCd <= 0) {
+            e.bossNovaCd = Math.max(2.6, 4.2 - elapsed / 220);
+            const count = 14 + Math.floor(Math.min(8, elapsed / 90));
+            const rot = e.bossRot + rand(-0.2, 0.2);
+            e.bossRot = rot + 0.55;
+            for (let i = 0; i < count; i++) {
+                const a = rot + (i / count) * TAU;
+                const sp = 180 + (i % 2) * 45 + elapsed * 0.12;
+                spawnProjectile({
+                    hostile: true,
+                    kind: 'boss_orb',
+                    x: e.x,
+                    y: e.y,
+                    vx: Math.cos(a) * sp,
+                    vy: Math.sin(a) * sp,
+                    r: 5.5,
+                    ttl: 5.2,
+                    dmg: e.dmg * 0.75,
+                });
+            }
+        }
+
+        if (e.bossRainCd <= 0) {
+            e.bossRainCd = Math.max(5.8, 8.2 - elapsed / 180);
+            announceEvent('Boss 释放陨星弹幕！', 'rgba(255,140,140,0.98)', 1.1);
+            const drops = 6 + Math.floor(Math.min(6, elapsed / 120));
+            for (let i = 0; i < drops; i++) {
+                const a = rand(0, TAU);
+                const rr = rand(80, 320);
+                spawnProjectile({
+                    hostile: true,
+                    kind: 'boss_meteor',
+                    x: player.x + Math.cos(a) * rr,
+                    y: player.y + Math.sin(a) * rr,
+                    r: 8,
+                    blastR: 48 + rand(-8, 16),
+                    delay: 0.74 + rand(0, 0.34),
+                    ttl: 1.8,
+                    dmg: e.dmg * 1.15,
+                });
+            }
+        }
+
+        if (e.bossWaveCd <= 0) {
+            e.bossWaveCd = Math.max(6.6, 9.4 - elapsed / 200);
+            const base = Math.atan2(player.y - e.y, player.x - e.x);
+            for (let i = 0; i < 7; i++) {
+                const spread = (i - 3) * 0.12;
+                const a = base + spread;
+                spawnProjectile({
+                    hostile: true,
+                    kind: 'boss_lance',
+                    x: e.x + Math.cos(a) * (e.r + 8),
+                    y: e.y + Math.sin(a) * (e.r + 8),
+                    vx: Math.cos(a) * (360 + i * 10),
+                    vy: Math.sin(a) * (360 + i * 10),
+                    r: 6,
+                    ttl: 2.1,
+                    dmg: e.dmg * 0.95,
+                });
+            }
+        }
+    }
+
     function updateEnemies(dt) {
         const aura = auraProfile();
 
@@ -1477,6 +1675,7 @@
                     }
                     announceEvent('Boss 召唤了蜂群！', 'rgba(255,120,120,0.96)', 1.3);
                 }
+                castBossSkills(e, dt);
             }
 
             const terrainSlow = terrainSlowMultiplier(e.x, e.y, e.r);
@@ -1503,6 +1702,37 @@
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const p = projectiles[i];
             p.t += dt;
+
+            if (p.hostile) {
+                if (p.kind === 'boss_meteor') {
+                    p.ttl -= dt;
+                    p.delay -= dt;
+                    if (p.delay <= 0) {
+                        fx.push({ x: p.x, y: p.y, kind: 'boss_meteor_boom', r: p.blastR, t: 0, duration: 0.34 });
+                        if (dist(p.x, p.y, player.x, player.y) <= p.blastR + player.r) {
+                            hurtPlayer(p.dmg);
+                        }
+                        projectiles.splice(i, 1);
+                    } else if (p.ttl <= 0) {
+                        projectiles.splice(i, 1);
+                    }
+                    continue;
+                }
+
+                p.ttl -= dt;
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                if (p.ttl <= 0 || dist(p.x, p.y, player.x, player.y) > WORLD.despawnRadius * 1.35) {
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+                if (dist(p.x, p.y, player.x, player.y) < p.r + player.r) {
+                    hurtPlayer(p.dmg);
+                    fx.push({ x: p.x, y: p.y, t: 0, kind: 'boss_hit', duration: 0.26 });
+                    projectiles.splice(i, 1);
+                }
+                continue;
+            }
 
             if (p.kind === 'bomb') {
                 p.ttl -= dt;
@@ -1634,6 +1864,20 @@
             } else if (g.kind === 'chest') {
                 pendingChestRewards += g.value;
                 announceEvent(`获得宝箱：可选择 ${g.value} 次奖励`, 'rgba(255,220,130,0.98)', 2.8);
+                cinematic.flash = Math.max(cinematic.flash, 0.28);
+                for (let j = 0; j < 10; j++) {
+                    const a = rand(0, TAU);
+                    const sp = rand(80, 210);
+                    fx.push({
+                        kind: 'chest_spark',
+                        x: g.x,
+                        y: g.y,
+                        vx: Math.cos(a) * sp,
+                        vy: Math.sin(a) * sp,
+                        t: 0,
+                        duration: 0.5,
+                    });
+                }
                 openNextRewardPanel();
             }
             pickups.splice(i, 1);
@@ -1642,8 +1886,15 @@
 
     function updateFx(dt) {
         for (let i = fx.length - 1; i >= 0; i--) {
-            fx[i].t += dt;
-            if (fx[i].t > (fx[i].duration || 0.35)) fx.splice(i, 1);
+            const f = fx[i];
+            f.t += dt;
+            if (f.vx || f.vy) {
+                f.x += (f.vx || 0) * dt;
+                f.y += (f.vy || 0) * dt;
+                f.vx = (f.vx || 0) * Math.pow(0.95, dt * 60);
+                f.vy = (f.vy || 0) * Math.pow(0.95, dt * 60);
+            }
+            if (f.t > (f.duration || 0.35)) fx.splice(i, 1);
         }
     }
 
@@ -1664,6 +1915,7 @@
     function draw() {
         ctx.clearRect(0, 0, W(), H());
         drawBackground();
+        drawLandmarks();
         drawObstacles();
 
         for (const g of pickups) drawPickup(g);
@@ -1675,6 +1927,8 @@
         for (const f of fx) drawFx(f);
 
         drawEventBanner();
+        drawCinematicOverlay();
+        drawMinimap();
     }
 
     function drawBackground() {
@@ -1704,6 +1958,69 @@
             ctx.stroke();
         }
         ctx.restore();
+    }
+
+    function drawLandmarks() {
+        for (const lm of LANDMARKS) {
+            const s = worldToScreen(lm.x, lm.y);
+            if (s.x + lm.r < -90 || s.x - lm.r > W() + 90 || s.y + lm.r < -90 || s.y - lm.r > H() + 90) continue;
+
+            ctx.save();
+            if (lm.type === 'altar') {
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, lm.r, 0, TAU);
+                ctx.fillStyle = 'rgba(125,115,185,0.5)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(212,196,255,0.65)';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            } else if (lm.type === 'ruin') {
+                ctx.fillStyle = 'rgba(90,126,146,0.58)';
+                ctx.fillRect(s.x - lm.r * 0.72, s.y - lm.r * 0.66, lm.r * 1.44, lm.r * 1.32);
+                ctx.strokeStyle = 'rgba(165,210,225,0.64)';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(s.x - lm.r * 0.72, s.y - lm.r * 0.66, lm.r * 1.44, lm.r * 1.32);
+            } else if (lm.type === 'spire') {
+                ctx.beginPath();
+                ctx.moveTo(s.x, s.y - lm.r * 0.92);
+                ctx.lineTo(s.x + lm.r * 0.72, s.y + lm.r * 0.7);
+                ctx.lineTo(s.x - lm.r * 0.72, s.y + lm.r * 0.7);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(70,82,120,0.68)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(200,220,255,0.7)';
+                ctx.lineWidth = 2.4;
+                ctx.stroke();
+            } else if (lm.type === 'gate') {
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, lm.r, 0, TAU);
+                ctx.strokeStyle = 'rgba(180,235,255,0.72)';
+                ctx.lineWidth = 4;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, lm.r * 0.58, 0, TAU);
+                ctx.fillStyle = 'rgba(88,160,190,0.34)';
+                ctx.fill();
+            } else {
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, lm.r, 0, TAU);
+                ctx.fillStyle = 'rgba(115,175,222,0.45)';
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, lm.r * 0.52, 0, TAU);
+                ctx.fillStyle = 'rgba(170,225,255,0.66)';
+                ctx.fill();
+            }
+
+            const near = dist(player.x, player.y, lm.x, lm.y) < 260;
+            if (near) {
+                ctx.fillStyle = 'rgba(230,246,255,0.92)';
+                ctx.font = '12px system-ui, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(lm.name, s.x, s.y - lm.r - 10);
+            }
+            ctx.restore();
+        }
     }
 
     function drawObstacles() {
@@ -1849,6 +2166,50 @@
         const s = worldToScreen(p.x, p.y);
         ctx.save();
 
+        if (p.hostile) {
+            if (p.kind === 'boss_meteor') {
+                const pulse = 0.6 + Math.sin((p.t || 0) * 22) * 0.2;
+                ctx.globalAlpha = clamp(0.35 + (1 - p.delay) * 0.6, 0.35, 0.95);
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, (p.blastR || 36) * pulse, 0, TAU);
+                ctx.strokeStyle = 'rgba(255,120,120,0.95)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, 8, 0, TAU);
+                ctx.fillStyle = 'rgba(255,170,120,0.92)';
+                ctx.fill();
+                ctx.restore();
+                return;
+            }
+
+            if (p.kind === 'boss_lance') {
+                const a = Math.atan2(p.vy, p.vx);
+                ctx.translate(s.x, s.y);
+                ctx.rotate(a);
+                ctx.fillStyle = 'rgba(255,130,130,0.95)';
+                ctx.beginPath();
+                ctx.moveTo(10, 0);
+                ctx.lineTo(-8, -4);
+                ctx.lineTo(-8, 4);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+                return;
+            }
+
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, p.r, 0, TAU);
+            ctx.fillStyle = 'rgba(255,110,110,0.95)';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, p.r * 0.48, 0, TAU);
+            ctx.fillStyle = 'rgba(255,210,180,0.92)';
+            ctx.fill();
+            ctx.restore();
+            return;
+        }
+
         if (p.kind === 'thunder') {
             const a = clamp(0.3 + (0.8 - p.delay), 0.2, 0.9);
             ctx.globalAlpha = a;
@@ -1968,6 +2329,53 @@
             return;
         }
 
+        if (f.kind === 'evolve_ring') {
+            const s = worldToScreen(f.x, f.y);
+            const rr = (f.r || 24) + f.t * 220;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, rr, 0, TAU);
+            ctx.strokeStyle = 'rgba(255,245,170,0.95)';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.restore();
+            return;
+        }
+
+        if (f.kind === 'evolve_spark' || f.kind === 'chest_spark') {
+            const s = worldToScreen(f.x, f.y);
+            const rr = f.kind === 'evolve_spark' ? 3.1 : 2.6;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, rr, 0, TAU);
+            ctx.fillStyle = f.kind === 'evolve_spark'
+                ? 'rgba(255,244,170,0.95)'
+                : 'rgba(255,214,130,0.9)';
+            ctx.fill();
+            ctx.restore();
+            return;
+        }
+
+        if (f.kind === 'boss_meteor_boom') {
+            const s = worldToScreen(f.x, f.y);
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, (f.r || 40) * (0.35 + f.t * 2.5), 0, TAU);
+            ctx.strokeStyle = 'rgba(255,140,120,0.95)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+            return;
+        }
+
+        if (f.kind === 'landmark_ping') {
+            const s = worldToScreen(f.x, f.y);
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, (f.r || 46) + f.t * 52, 0, TAU);
+            ctx.strokeStyle = 'rgba(160,220,255,0.92)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+            return;
+        }
+
         if (f.kind === 'boom' || f.kind === 'thunder' || f.kind === 'arcane') {
             const s = worldToScreen(f.x, f.y);
             ctx.beginPath();
@@ -1986,7 +2394,11 @@
         const s = worldToScreen(f.x, f.y);
         ctx.beginPath();
         ctx.arc(s.x, s.y, 10 + f.t * 30, 0, TAU);
-        ctx.strokeStyle = f.kind === 'hurt' ? 'rgba(255,107,107,0.92)' : 'rgba(255,255,255,0.72)';
+        ctx.strokeStyle = f.kind === 'hurt'
+            ? 'rgba(255,107,107,0.92)'
+            : f.kind === 'boss_hit'
+                ? 'rgba(255,140,140,0.92)'
+                : 'rgba(255,255,255,0.72)';
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.restore();
@@ -2032,6 +2444,121 @@
         ctx.restore();
     }
 
+    function drawCinematicOverlay() {
+        if (cinematic.flash > 0) {
+            ctx.save();
+            ctx.globalAlpha = clamp(cinematic.flash, 0, 1) * 0.32;
+            ctx.fillStyle = 'rgba(255,240,185,0.95)';
+            ctx.fillRect(0, 0, W(), H());
+            ctx.restore();
+        }
+
+        if (cinematic.textTTL > 0 && cinematic.text) {
+            const a = clamp(cinematic.textTTL / 0.7, 0, 1);
+            ctx.save();
+            ctx.globalAlpha = a;
+            ctx.fillStyle = 'rgba(255,245,180,0.96)';
+            ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(cinematic.text, W() / 2, H() * 0.28);
+            ctx.restore();
+        }
+    }
+
+    function drawMinimap() {
+        const w = minimapCanvas.clientWidth;
+        const h = minimapCanvas.clientHeight;
+        if (!w || !h) return;
+        const mctx = minimapCtx;
+        const cx = w / 2;
+        const cy = h / 2;
+        const r = Math.min(w, h) * 0.47;
+        const range = WORLD.minimapRange;
+
+        mctx.clearRect(0, 0, w, h);
+        mctx.save();
+        mctx.beginPath();
+        mctx.arc(cx, cy, r, 0, TAU);
+        mctx.clip();
+
+        mctx.fillStyle = 'rgba(8,14,28,0.82)';
+        mctx.fillRect(0, 0, w, h);
+
+        mctx.strokeStyle = 'rgba(180,200,230,0.16)';
+        mctx.lineWidth = 1;
+        mctx.beginPath();
+        mctx.moveTo(cx, 0); mctx.lineTo(cx, h);
+        mctx.moveTo(0, cy); mctx.lineTo(w, cy);
+        mctx.stroke();
+
+        const toMini = (wx, wy, clampEdge = false) => {
+            let dx = (wx - player.x) / range;
+            let dy = (wy - player.y) / range;
+            const d = Math.hypot(dx, dy);
+            if (clampEdge && d > 1) {
+                dx /= d;
+                dy /= d;
+            }
+            return {
+                x: cx + dx * r,
+                y: cy + dy * r,
+                out: d > 1,
+            };
+        };
+
+        forNearbyObstacles(player.x, player.y, 2, (ob) => {
+            const p = toMini(ob.x, ob.y);
+            if (p.out) return;
+            const rr = clamp((ob.r / range) * r * 1.6, 1, 4.5);
+            mctx.beginPath();
+            mctx.arc(p.x, p.y, rr, 0, TAU);
+            mctx.fillStyle = ob.type === 'river'
+                ? 'rgba(110,180,235,0.6)'
+                : ob.type === 'wall'
+                    ? 'rgba(180,190,210,0.68)'
+                    : 'rgba(84,170,110,0.66)';
+            mctx.fill();
+        });
+
+        for (const lm of LANDMARKS) {
+            const p = toMini(lm.x, lm.y, true);
+            const rr = p.out ? 2.2 : 3.4;
+            mctx.beginPath();
+            mctx.arc(p.x, p.y, rr, 0, TAU);
+            mctx.fillStyle = discoveredLandmarks.has(lm.id)
+                ? 'rgba(160,230,255,0.95)'
+                : 'rgba(120,150,190,0.8)';
+            mctx.fill();
+        }
+
+        for (const e of enemies) {
+            if (e.dead) continue;
+            const p = toMini(e.x, e.y);
+            if (p.out) continue;
+            const rr = e.boss ? 3.2 : e.elite ? 2.5 : 1.5;
+            mctx.beginPath();
+            mctx.arc(p.x, p.y, rr, 0, TAU);
+            mctx.fillStyle = e.boss
+                ? 'rgba(255,92,92,0.97)'
+                : e.elite
+                    ? 'rgba(255,220,120,0.96)'
+                    : 'rgba(255,160,160,0.88)';
+            mctx.fill();
+        }
+
+        mctx.beginPath();
+        mctx.arc(cx, cy, 2.8, 0, TAU);
+        mctx.fillStyle = 'rgba(220,255,255,0.98)';
+        mctx.fill();
+
+        mctx.restore();
+        mctx.strokeStyle = 'rgba(210,225,255,0.36)';
+        mctx.lineWidth = 1;
+        mctx.beginPath();
+        mctx.arc(cx, cy, r, 0, TAU);
+        mctx.stroke();
+    }
+
     // ====== HUD ======
     function updateHUD(dt) {
         hud.time.textContent = fmtTime(elapsed);
@@ -2064,6 +2591,15 @@
         return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
 
+    function updateCinematics(dt) {
+        updateRewardIntro(dt);
+        cinematic.flash = Math.max(0, cinematic.flash - dt * 1.35);
+        cinematic.textTTL = Math.max(0, cinematic.textTTL - dt);
+        if (rewardIntro.active) {
+            rewardCinematic.textContent = `宝箱开启中... 剩余 ${pendingChestRewards} 次奖励`;
+        }
+    }
+
     // ====== Main loop ======
     function loop(now) {
         const dt = Math.min(0.033, (now - last) / 1000);
@@ -2072,6 +2608,7 @@
         if (!paused && !inReward && !gameOver && menu.classList.contains('hidden')) {
             step(dt);
         }
+        updateCinematics(dt);
         draw();
         updateHUD(dt);
 

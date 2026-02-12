@@ -18,6 +18,7 @@ canvas{display:block; width:100%; height:100%}
     position:absolute; top:10px; left:10px; right:10px;
     display:flex; flex-direction:column; gap:8px;
     pointer-events:none;
+    z-index:5;
 }
 .row{display:flex; gap:8px; flex-wrap:wrap}
 .row.small{opacity:.9}
@@ -35,6 +36,35 @@ canvas{display:block; width:100%; height:100%}
     white-space:nowrap;
     overflow:hidden;
     text-overflow:ellipsis;
+}
+
+#minimapWrap{
+    position:absolute;
+    right:14px;
+    top:96px;
+    width:170px;
+    height:170px;
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.16);
+    background:rgba(4,8,18,.62);
+    box-shadow:0 16px 40px rgba(0,0,0,.38);
+    overflow:hidden;
+    z-index:6;
+    pointer-events:none;
+}
+#minimap{
+    width:100%;
+    height:100%;
+    display:block;
+}
+#minimapLabel{
+    position:absolute;
+    left:8px;
+    bottom:6px;
+    font-size:10px;
+    letter-spacing:.08em;
+    color:rgba(255,255,255,.6);
+    text-transform:uppercase;
 }
 
 .xpbar{
@@ -77,6 +107,26 @@ canvas{display:block; width:100%; height:100%}
 }
 #card h2{margin:6px 0 12px 0; font-size:18px}
 #choices{display:grid; grid-template-columns:1fr; gap:10px}
+#choices.dimmed{
+    opacity:.1;
+    pointer-events:none;
+}
+#rewardCinematic{
+    border:1px solid rgba(255,220,120,.24);
+    border-radius:12px;
+    background:radial-gradient(220px 120px at 50% 50%, rgba(255,220,120,.18), rgba(255,220,120,.04) 60%, rgba(0,0,0,0) 100%);
+    color:rgba(255,243,205,.95);
+    text-align:center;
+    font-weight:700;
+    letter-spacing:.02em;
+    padding:16px 12px;
+    margin-bottom:10px;
+    animation:chestPulse .56s ease-in-out infinite alternate;
+}
+@keyframes chestPulse{
+    from{transform:scale(1); filter:brightness(1)}
+    to{transform:scale(1.02); filter:brightness(1.08)}
+}
 .choice{
     border-radius:14px;
     border:1px solid rgba(255,255,255,.12);
@@ -151,3 +201,12 @@ ul{margin:8px 0 0 18px}
 }
 #dashBtn{bottom:24px}
 #pauseBtn{bottom:74px}
+
+@media (max-width: 720px){
+    #minimapWrap{
+        width:128px;
+        height:128px;
+        top:108px;
+        right:10px;
+    }
+}
