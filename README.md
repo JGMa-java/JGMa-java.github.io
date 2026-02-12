@@ -4,6 +4,8 @@
 
 1、bugfix:音量调节失效。
 
+2、“顶部警告提示”下移到 HUD 下方避免被遮挡，自动避开 minimap 底部。
+
 ### Vampire Survivors Lite  V2.2.6
 
 1. 先检查是否在当前显示区域内

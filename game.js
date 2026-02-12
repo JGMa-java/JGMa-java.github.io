@@ -41,6 +41,8 @@
     const ovTitle = document.getElementById('ovTitle');
     const rewardCinematic = document.getElementById('rewardCinematic');
     const choicesEl = document.getElementById('choices');
+    const hudRoot = document.getElementById('hud');
+    const minimapWrapEl = document.getElementById('minimapWrap');
     const menu = document.getElementById('menu');
     const startBtn = document.getElementById('startBtn');
     const howBtn = document.getElementById('howBtn');
@@ -3596,12 +3598,19 @@
     function drawEventBanner() {
         if (eventBanner.ttl <= 0) return;
         const a = clamp(eventBanner.ttl / 1.2, 0, 1);
+        const hudBottom = (hudRoot?.offsetHeight || 0) + 32;
+        let y = isTouch ? Math.max(116, hudBottom) : Math.max(86, hudBottom);
+        if (isTouch && minimapWrapEl) {
+            const r = minimapWrapEl.getBoundingClientRect();
+            y = Math.max(y, r.bottom + 18);
+        }
+        y = Math.min(y, H() - 24);
         ctx.save();
         ctx.globalAlpha = a;
         ctx.fillStyle = eventBanner.color;
         ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(eventBanner.text, W() / 2, 74);
+        ctx.fillText(eventBanner.text, W() / 2, y);
         ctx.restore();
     }
 
