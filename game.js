@@ -1762,9 +1762,10 @@
 
         if (fromChest) {
             // 宝箱更偏向给武器和进化
-            for (const c of pool) {
-                if (c.kind.startsWith('weapon')) pool.push({ ...c });
-            }
+            const weaponBias = pool
+                .filter((c) => c.kind.startsWith('weapon'))
+                .map((c) => ({ ...c }));
+            pool.push(...weaponBias);
         }
 
         shuffle(pool);

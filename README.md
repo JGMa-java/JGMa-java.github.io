@@ -1,5 +1,11 @@
 
 
+### Vampire Survivors Lite  V2.2.4
+
+1、修复遇到宝箱卡死。
+
+
+
 ### Vampire Survivors Lite  V2.2.3
 
 1. 把摇杆默认停靠改到“屏幕下方中央”；
