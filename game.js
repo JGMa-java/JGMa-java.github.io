@@ -45,6 +45,7 @@
     const howBtn = document.getElementById('howBtn');
     const resetBtn = document.getElementById('resetBtn');
     const soundBtn = document.getElementById('soundBtn');
+    const musicBtn = document.getElementById('musicBtn');
     const howBox = document.getElementById('how');
     const diffRow = document.getElementById('diffRow');
     const diffBtns = [...document.querySelectorAll('.diffBtn')];
@@ -79,7 +80,7 @@
         }
     };
 
-    // ====== Audio / SFX ======
+    // ====== Audio / SFX / BGM ======
     function loadSfxEnabled() {
         try {
             const raw = localStorage.getItem('survivors_sfx_enabled_v1');
@@ -90,13 +91,56 @@
         }
     }
 
-    const SFX = {
+    function loadBgmEnabled() {
+        try {
+            const raw = localStorage.getItem('survivors_bgm_enabled_v1');
+            if (raw === null) return true;
+            return raw !== '0';
+        } catch {
+            return true;
+        }
+    }
+
+    const AUDIO = {
         supported: !!(window.AudioContext || window.webkitAudioContext),
-        enabled: loadSfxEnabled(),
-        volume: 0.22,
         ctx: null,
         master: null,
+    };
+
+    const SFX = {
+        supported: AUDIO.supported,
+        enabled: loadSfxEnabled(),
+        volume: 0.22,
+        bus: null,
         last: Object.create(null),
+    };
+
+    const BGM = {
+        enabled: loadBgmEnabled(),
+        volume: 0.16,
+        bus: null,
+        mode: 'none', // none | file | synth
+        audioEl: null,
+        fileUrl: 'assets/bgm.mp3',
+        fileChecked: false,
+        fileAvailable: false,
+        fileProbe: null,
+        synthTimer: 0,
+        synthNextAt: 0,
+        synthStep: 0,
+    };
+
+    const BGM_SYNTH = {
+        stepSec: 0.25,
+        lookAheadSec: 0.45,
+        tickMs: 90,
+        chords: [
+            [45, 52, 57],
+            [41, 48, 53],
+            [43, 50, 55],
+            [40, 47, 52],
+        ],
+        melody: [0, 2, 3, 2, 5, 3, 2, 0],
     };
 
     function updateSoundBtnText() {
@@ -110,21 +154,35 @@
         soundBtn.textContent = `音效：${SFX.enabled ? '开' : '关'}`;
     }
 
+    function updateMusicBtnText() {
+        if (!musicBtn) return;
+        musicBtn.disabled = false;
+        musicBtn.textContent = `音乐：${BGM.enabled ? '开' : '关'}`;
+    }
+
     function ensureAudio() {
-        if (!SFX.supported || !SFX.enabled) return null;
-        if (SFX.ctx) return SFX.ctx;
+        if (!AUDIO.supported) return null;
+        if (AUDIO.ctx) return AUDIO.ctx;
         const Ctor = window.AudioContext || window.webkitAudioContext;
-        SFX.ctx = new Ctor();
-        SFX.master = SFX.ctx.createGain();
-        SFX.master.gain.value = SFX.volume;
-        SFX.master.connect(SFX.ctx.destination);
-        return SFX.ctx;
+        AUDIO.ctx = new Ctor();
+        AUDIO.master = AUDIO.ctx.createGain();
+        AUDIO.master.gain.value = 1;
+        AUDIO.master.connect(AUDIO.ctx.destination);
+
+        SFX.bus = AUDIO.ctx.createGain();
+        SFX.bus.gain.value = SFX.enabled ? SFX.volume : 0;
+        SFX.bus.connect(AUDIO.master);
+
+        BGM.bus = AUDIO.ctx.createGain();
+        BGM.bus.gain.value = BGM.enabled ? BGM.volume : 0;
+        BGM.bus.connect(AUDIO.master);
+        return AUDIO.ctx;
     }
 
     function unlockAudio() {
-        const ctx = ensureAudio();
-        if (!ctx) return;
-        if (ctx.state === 'suspended') ctx.resume();
+        const audioCtx = ensureAudio();
+        if (!audioCtx) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume();
     }
 
     function setSfxEnabled(v) {
@@ -133,8 +191,208 @@
             localStorage.setItem('survivors_sfx_enabled_v1', SFX.enabled ? '1' : '0');
         } catch {}
         updateSoundBtnText();
-        if (SFX.master) {
-            SFX.master.gain.value = SFX.enabled ? SFX.volume : 0;
+        if (SFX.bus) {
+            SFX.bus.gain.value = SFX.enabled ? SFX.volume : 0;
+        }
+    }
+
+    function stopSynthBgm() {
+        if (BGM.synthTimer) {
+            clearInterval(BGM.synthTimer);
+            BGM.synthTimer = 0;
+        }
+    }
+
+    function stopFileBgm(resetPos = false) {
+        if (!BGM.audioEl) return;
+        BGM.audioEl.pause();
+        if (resetPos) BGM.audioEl.currentTime = 0;
+    }
+
+    function stopBgm(resetPos = false) {
+        stopSynthBgm();
+        stopFileBgm(resetPos);
+        BGM.mode = 'none';
+    }
+
+    function setBgmEnabled(v) {
+        BGM.enabled = !!v;
+        try {
+            localStorage.setItem('survivors_bgm_enabled_v1', BGM.enabled ? '1' : '0');
+        } catch {}
+        updateMusicBtnText();
+        if (BGM.bus) BGM.bus.gain.value = BGM.enabled ? BGM.volume : 0;
+        if (!BGM.enabled) {
+            stopBgm(true);
+            return;
+        }
+        unlockAudio();
+        startBgm();
+    }
+
+    function probeBgmFile() {
+        if (BGM.fileChecked) return Promise.resolve(BGM.fileAvailable);
+        if (BGM.fileProbe) return BGM.fileProbe;
+        BGM.fileProbe = (async () => {
+            let ok = false;
+            try {
+                const head = await fetch(BGM.fileUrl, { method: 'HEAD', cache: 'no-store' });
+                ok = head.ok;
+                if (!ok && head.status === 405) {
+                    const probe = await fetch(BGM.fileUrl, {
+                        method: 'GET',
+                        cache: 'no-store',
+                        headers: { Range: 'bytes=0-0' },
+                    });
+                    ok = probe.ok || probe.status === 206;
+                }
+            } catch {}
+            BGM.fileAvailable = ok;
+            BGM.fileChecked = true;
+            BGM.fileProbe = null;
+            return ok;
+        })();
+        return BGM.fileProbe;
+    }
+
+    function ensureBgmAudioElement() {
+        if (BGM.audioEl) return BGM.audioEl;
+        if (typeof Audio === 'undefined') return null;
+        const a = new Audio(BGM.fileUrl);
+        a.loop = true;
+        a.preload = 'auto';
+        a.volume = clamp(BGM.volume, 0, 1);
+        a.addEventListener('error', () => {
+            BGM.fileChecked = true;
+            BGM.fileAvailable = false;
+            if (!BGM.enabled || BGM.mode !== 'file') return;
+            stopFileBgm(false);
+            BGM.mode = 'none';
+            startSynthBgm();
+        });
+        BGM.audioEl = a;
+        return a;
+    }
+
+    function startFileBgm() {
+        if (!BGM.enabled) return false;
+        const a = ensureBgmAudioElement();
+        if (!a) return false;
+        stopSynthBgm();
+        BGM.mode = 'file';
+        a.volume = clamp(BGM.volume, 0, 1);
+        const playPromise = a.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(() => {
+                if (!BGM.enabled || BGM.mode !== 'file') return;
+                stopFileBgm(false);
+                BGM.mode = 'none';
+                startSynthBgm();
+            });
+        }
+        return true;
+    }
+
+    function midiToFreq(midi) {
+        return 440 * 2 ** ((midi - 69) / 12);
+    }
+
+    function bgmTone(start, {
+        freq = 440,
+        dur = 0.2,
+        type = 'sine',
+        gain = 0.012,
+        attack = 0.01,
+        release = 0.12,
+    } = {}) {
+        if (!BGM.enabled || BGM.mode !== 'synth') return;
+        const audioCtx = ensureAudio();
+        if (!audioCtx || !BGM.bus) return;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(Math.max(20, freq), start);
+        g.gain.setValueAtTime(0.0001, start);
+        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), start + attack);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + dur + release);
+        osc.connect(g);
+        g.connect(BGM.bus);
+        osc.start(start);
+        osc.stop(start + dur + release + 0.02);
+    }
+
+    function scheduleSynthStep(start, step) {
+        const chord = BGM_SYNTH.chords[Math.floor(step / 8) % BGM_SYNTH.chords.length];
+        const local = step % 8;
+
+        if (local === 0) {
+            for (let i = 0; i < chord.length; i++) {
+                bgmTone(start, {
+                    freq: midiToFreq(chord[i] + 12),
+                    dur: BGM_SYNTH.stepSec * 7.6,
+                    gain: 0.006 + i * 0.0026,
+                    type: 'sine',
+                    attack: 0.03,
+                    release: 0.14,
+                });
+            }
+        }
+
+        if (local % 2 === 0) {
+            bgmTone(start, {
+                freq: midiToFreq(chord[0] - 12),
+                dur: BGM_SYNTH.stepSec * 1.9,
+                gain: 0.017,
+                type: 'triangle',
+                attack: 0.008,
+                release: 0.09,
+            });
+        }
+
+        const leadMidi = chord[2] + 12 + BGM_SYNTH.melody[local];
+        bgmTone(start + 0.02, {
+            freq: midiToFreq(leadMidi),
+            dur: BGM_SYNTH.stepSec * 0.82,
+            gain: 0.0125,
+            type: 'triangle',
+            attack: 0.006,
+            release: 0.06,
+        });
+    }
+
+    function pumpSynthBgm() {
+        if (!BGM.enabled || BGM.mode !== 'synth') return;
+        const audioCtx = ensureAudio();
+        if (!audioCtx) return;
+        while (BGM.synthNextAt < audioCtx.currentTime + BGM_SYNTH.lookAheadSec) {
+            scheduleSynthStep(BGM.synthNextAt, BGM.synthStep);
+            BGM.synthStep += 1;
+            BGM.synthNextAt += BGM_SYNTH.stepSec;
+        }
+    }
+
+    function startSynthBgm() {
+        if (!BGM.enabled) return false;
+        const audioCtx = ensureAudio();
+        if (!audioCtx || !BGM.bus) return false;
+        stopFileBgm(false);
+        stopSynthBgm();
+        BGM.mode = 'synth';
+        BGM.synthStep = 0;
+        BGM.synthNextAt = audioCtx.currentTime + 0.05;
+        BGM.synthTimer = window.setInterval(pumpSynthBgm, BGM_SYNTH.tickMs);
+        pumpSynthBgm();
+        return true;
+    }
+
+    function startBgm() {
+        if (!BGM.enabled || BGM.mode !== 'none') return;
+        if (BGM.fileChecked && BGM.fileAvailable) {
+            if (startFileBgm()) return;
+        }
+        const synthStarted = startSynthBgm();
+        if (!synthStarted && (!BGM.fileChecked || BGM.fileAvailable)) {
+            startFileBgm();
         }
     }
 
@@ -156,10 +414,10 @@
         slide = 0,
     } = {}) {
         if (!SFX.enabled) return;
-        const ctx = ensureAudio();
-        if (!ctx || !SFX.master) return;
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
+        const audioCtx = ensureAudio();
+        if (!audioCtx || !SFX.bus) return;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(Math.max(20, freq), start);
         if (slide) {
@@ -169,7 +427,7 @@
         g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), start + attack);
         g.gain.exponentialRampToValueAtTime(0.0001, start + dur + release);
         osc.connect(g);
-        g.connect(SFX.master);
+        g.connect(SFX.bus);
         osc.start(start);
         osc.stop(start + dur + release + 0.01);
     }
@@ -245,10 +503,19 @@
         setSfxEnabled(!SFX.enabled);
         if (SFX.enabled) unlockAudio();
     });
-    window.addEventListener('pointerdown', () => unlockAudio(), { passive: true });
-    window.addEventListener('touchstart', () => unlockAudio(), { passive: true });
-    window.addEventListener('keydown', () => unlockAudio());
+    musicBtn?.addEventListener('click', () => {
+        setBgmEnabled(!BGM.enabled);
+    });
+    const unlockAudioAndMusic = () => {
+        unlockAudio();
+        if (BGM.enabled) startBgm();
+    };
+    window.addEventListener('pointerdown', unlockAudioAndMusic, { passive: true });
+    window.addEventListener('touchstart', unlockAudioAndMusic, { passive: true });
+    window.addEventListener('keydown', unlockAudioAndMusic);
     updateSoundBtnText();
+    updateMusicBtnText();
+    probeBgmFile();
 
     // ====== World settings ======
     const W = () => canvas.clientWidth;
@@ -1411,6 +1678,10 @@
             setSfxEnabled(!SFX.enabled);
             if (SFX.enabled) unlockAudio();
         }
+        if (e.code === 'KeyB') {
+            setBgmEnabled(!BGM.enabled);
+            if (BGM.enabled) unlockAudio();
+        }
         if (e.code === 'KeyP') togglePause();
         if (e.code === 'Escape' && inReward) closeRewardPanel();
 
@@ -2122,6 +2393,7 @@
     function startGame() {
         menu.classList.add('hidden');
         unlockAudio();
+        startBgm();
         resetRun();
         announceEvent(`难度：${difficulty.label}`, 'rgba(175,230,255,0.98)', 1.6);
     }
