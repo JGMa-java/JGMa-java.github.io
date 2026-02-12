@@ -154,30 +154,34 @@
                 rageSpeedMul: 1.12,
                 critBonus: 0.05,
                 initialWeapons: ['spray'],
-                xpBaseMul: 0.84,
-                xpGrowthMul: 0.8,
+                xpBaseMul: 0.9,
+                xpGrowthMul: 0.88,
+                xpGainMul: 0.2,
                 enemyHpGrowthMul: 0.86,
                 enemySpeedGrowthMul: 0.88,
                 enemyDmgGrowthMul: 0.9,
                 spawnRateMul: 0.9,
+                levelChoiceStep: 1,
             },
             normal: {
                 label: '中等',
-                comboTimerMul: 1,
-                comboRewardMul: 1,
-                rageGainMul: 1,
-                rageDuration: 6.2,
-                rageDamageMul: 1.36,
-                rageFireRateMul: 1.32,
-                rageSpeedMul: 1.1,
-                critBonus: 0,
+                comboTimerMul: 1.075,
+                comboRewardMul: 1.0675,
+                rageGainMul: 1.075,
+                rageDuration: 6.44,
+                rageDamageMul: 1.375,
+                rageFireRateMul: 1.335,
+                rageSpeedMul: 1.103,
+                critBonus: 0.0075,
                 initialWeapons: [],
-                xpBaseMul: 1,
-                xpGrowthMul: 1,
-                enemyHpGrowthMul: 1,
-                enemySpeedGrowthMul: 1,
-                enemyDmgGrowthMul: 1,
-                spawnRateMul: 1,
+                xpBaseMul: 0.985,
+                xpGrowthMul: 0.982,
+                xpGainMul: 1,
+                enemyHpGrowthMul: 0.979,
+                enemySpeedGrowthMul: 0.982,
+                enemyDmgGrowthMul: 0.985,
+                spawnRateMul: 0.985,
+                levelChoiceStep: 1,
             },
             hard: {
                 label: '困难',
@@ -192,10 +196,12 @@
                 initialWeapons: [],
                 xpBaseMul: 1.12,
                 xpGrowthMul: 1.2,
+                xpGainMul: 1,
                 enemyHpGrowthMul: 1.12,
                 enemySpeedGrowthMul: 1.18,
                 enemyDmgGrowthMul: 1.08,
                 spawnRateMul: 1.12,
+                levelChoiceStep: 1,
             },
         },
     };
@@ -1486,7 +1492,10 @@
             ovTitle.textContent = `宝箱奖励！选择一项（待开 ${pendingChestRewards}）`;
             beginChestIntro();
         } else {
-            ovTitle.textContent = `升级！选择一项（待升 ${pendingLevelUps}）`;
+            const step = Math.max(1, difficulty.levelChoiceStep || 1);
+            ovTitle.textContent = step > 1
+                ? `升级！选择一项（待升 ${pendingLevelUps}，每次结算 ${step} 级）`
+                : `升级！选择一项（待升 ${pendingLevelUps}）`;
         }
         currentChoices = rollChoices(3, { fromChest: mode === 'chest' });
         renderChoices(currentChoices);
@@ -1662,13 +1671,25 @@
         const c = currentChoices[i];
         if (!c) return;
 
-        if (c.kind === 'weapon_add') addWeapon(c.key);
-        if (c.kind === 'weapon_up') upgradeWeapon(c.key);
-        if (c.kind === 'passive') applyPassive(c.key);
-        if (c.kind === 'evolve') evolveWeapon(c.key);
+        const applyOnce = () => {
+            if (c.kind === 'weapon_add') addWeapon(c.key);
+            if (c.kind === 'weapon_up') upgradeWeapon(c.key);
+            if (c.kind === 'passive') applyPassive(c.key);
+            if (c.kind === 'evolve') evolveWeapon(c.key);
+        };
 
-        if (rewardMode === 'chest') pendingChestRewards = Math.max(0, pendingChestRewards - 1);
-        if (rewardMode === 'level') pendingLevelUps = Math.max(0, pendingLevelUps - 1);
+        if (rewardMode === 'chest') {
+            applyOnce();
+            pendingChestRewards = Math.max(0, pendingChestRewards - 1);
+        } else if (rewardMode === 'level') {
+            const step = Math.max(1, difficulty.levelChoiceStep || 1);
+            const times = Math.max(1, Math.min(step, pendingLevelUps));
+            for (let t = 0; t < times; t++) applyOnce();
+            pendingLevelUps = Math.max(0, pendingLevelUps - times);
+            if (times > 1) {
+                cinematic.flash = Math.max(cinematic.flash, 0.16);
+            }
+        }
 
         closeRewardPanel();
     }
@@ -1785,7 +1806,7 @@
     }
 
     function addXp(v) {
-        player.xp += v;
+        player.xp += v * (difficulty.xpGainMul ?? 1);
         while (player.xp >= player.nextXp) {
             player.xp -= player.nextXp;
             player.level += 1;

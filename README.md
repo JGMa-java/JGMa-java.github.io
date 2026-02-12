@@ -1,6 +1,8 @@
 
 
+### Vampire Survivors Lite  V2.2.1
 
+爽感参数调整，降低爽感，增强中等模式爽感
 
 ### Vampire Survivors Lite  V2.2
 
