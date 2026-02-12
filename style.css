@@ -54,6 +54,32 @@ canvas{
     display:inline-flex; gap:10px; align-items:center;
     box-shadow:0 10px 30px rgba(0,0,0,.25);
 }
+.hpPill{
+    display:grid;
+    grid-template-columns:auto auto;
+    grid-template-rows:auto auto;
+    gap:4px 10px;
+    align-items:center;
+    min-width:190px;
+}
+.hpPill .k{grid-column:1}
+.hpPill #hp{grid-column:2; justify-self:end}
+.hpTrack{
+    grid-column:1 / -1;
+    height:8px;
+    border-radius:999px;
+    overflow:hidden;
+    background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.14);
+}
+.hpFill{
+    width:100%;
+    height:100%;
+    transform-origin:left center;
+    transform:scaleX(1);
+    background:linear-gradient(90deg, rgba(89,255,175,.95), rgba(118,235,255,.95));
+    transition:transform .12s linear, background .18s ease;
+}
 .k{color:var(--muted); font-size:12px}
 .eventPill{
     min-width:min(420px, 92vw);
@@ -207,6 +233,23 @@ canvas{
 .muted{color:var(--muted)}
 .tiny{margin-top:10px; font-size:12px; opacity:.85}
 .btnRow{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px}
+.volumeRow{
+    margin-top:10px;
+    display:grid;
+    grid-template-columns:auto 1fr auto;
+    align-items:center;
+    gap:10px;
+    color:var(--muted);
+}
+.volumeRow input[type="range"]{
+    width:100%;
+    accent-color:#7cffd0;
+}
+.volumeRow span{
+    min-width:46px;
+    text-align:right;
+    color:rgba(255,255,255,.86);
+}
 button{
     background:rgba(255,255,255,.12);
     border:1px solid rgba(255,255,255,.16);

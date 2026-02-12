@@ -14,7 +14,11 @@
         <div class="row">
             <div class="pill"><span class="k">时间</span><span id="time">00:00</span></div>
             <div class="pill"><span class="k">等级</span><span id="level">1</span></div>
-            <div class="pill"><span class="k">HP</span><span id="hp">100 / 100</span></div>
+            <div class="pill hpPill">
+                <span class="k">HP</span>
+                <span id="hp">100 / 100</span>
+                <div class="hpTrack"><div class="hpFill" id="hpfill"></div></div>
+            </div>
         </div>
 
         <div class="row">
@@ -77,6 +81,11 @@
                 <button id="soundBtn">音效：开</button>
                 <button id="musicBtn">音乐：开</button>
             </div>
+            <div class="volumeRow">
+                <label for="volumeRange">音量</label>
+                <input id="volumeRange" type="range" min="0" max="200" step="1" value="100" />
+                <span id="volumeTxt">100%</span>
+            </div>
             <div id="how" class="muted hidden">
                 <ul>
                     <li>目标：尽可能存活更久。</li>
@@ -91,11 +100,11 @@
                     <li>手机：左下摇杆移动，右侧按钮冲刺/暂停。</li>
                 </ul>
             </div>
-            <div class="muted tiny">纯前端静态文件，可直接部署到 GitHub Pages。</div>
+            <div class="muted tiny">公测版，用户排行敬请期待！！！</div>
         </div>
     </div>
 
-    <div id="versionTag">V2.2.4</div>
+    <div id="versionTag">V2.2.5</div>
 
 </div>
 

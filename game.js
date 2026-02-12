@@ -25,6 +25,7 @@
         time: document.getElementById('time'),
         level: document.getElementById('level'),
         hp: document.getElementById('hp'),
+        hpfill: document.getElementById('hpfill'),
         kills: document.getElementById('kills'),
         enemies: document.getElementById('enemies'),
         fps: document.getElementById('fps'),
@@ -46,9 +47,12 @@
     const resetBtn = document.getElementById('resetBtn');
     const soundBtn = document.getElementById('soundBtn');
     const musicBtn = document.getElementById('musicBtn');
+    const volumeRange = document.getElementById('volumeRange');
+    const volumeTxt = document.getElementById('volumeTxt');
     const howBox = document.getElementById('how');
     const diffRow = document.getElementById('diffRow');
     const diffBtns = [...document.querySelectorAll('.diffBtn')];
+    const menuDesc = menu.querySelector('p.muted');
 
     const mobile = document.getElementById('mobile');
     const stick = document.getElementById('stick');
@@ -101,23 +105,34 @@
         }
     }
 
+    function loadMasterVolume() {
+        try {
+            const raw = Number(localStorage.getItem('survivors_master_volume_v1'));
+            if (!Number.isFinite(raw)) return 1.25;
+            return clamp(raw, 0, 2);
+        } catch {
+            return 1.25;
+        }
+    }
+
     const AUDIO = {
         supported: !!(window.AudioContext || window.webkitAudioContext),
         ctx: null,
         master: null,
+        masterVolume: loadMasterVolume(),
     };
 
     const SFX = {
         supported: AUDIO.supported,
         enabled: loadSfxEnabled(),
-        volume: 0.22,
+        volume: 0.34,
         bus: null,
         last: Object.create(null),
     };
 
     const BGM = {
         enabled: loadBgmEnabled(),
-        volume: 0.16,
+        volume: 0.38,
         bus: null,
         mode: 'none', // none | file | synth
         audioEl: null,
@@ -160,13 +175,42 @@
         musicBtn.textContent = `音乐：${BGM.enabled ? '开' : '关'}`;
     }
 
+    function updateVolumeUi() {
+        const pct = Math.round(clamp(AUDIO.masterVolume, 0, 2) * 100);
+        if (volumeRange) volumeRange.value = String(pct);
+        if (volumeTxt) volumeTxt.textContent = `${pct}%`;
+    }
+
+    function bgmElementVolume() {
+        return clamp(BGM.volume * AUDIO.masterVolume, 0, 1);
+    }
+
+    function applyAudioMix() {
+        if (AUDIO.master) AUDIO.master.gain.value = AUDIO.masterVolume;
+        if (SFX.bus) SFX.bus.gain.value = SFX.enabled ? SFX.volume : 0;
+        if (BGM.bus) BGM.bus.gain.value = BGM.enabled ? BGM.volume : 0;
+        if (BGM.audioEl) BGM.audioEl.volume = bgmElementVolume();
+    }
+
+    function setMasterVolume(v, persist = true) {
+        const n = clamp(Number(v) || 0, 0, 2);
+        AUDIO.masterVolume = n;
+        if (persist) {
+            try {
+                localStorage.setItem('survivors_master_volume_v1', String(n));
+            } catch {}
+        }
+        applyAudioMix();
+        updateVolumeUi();
+    }
+
     function ensureAudio() {
         if (!AUDIO.supported) return null;
         if (AUDIO.ctx) return AUDIO.ctx;
         const Ctor = window.AudioContext || window.webkitAudioContext;
         AUDIO.ctx = new Ctor();
         AUDIO.master = AUDIO.ctx.createGain();
-        AUDIO.master.gain.value = 1;
+        AUDIO.master.gain.value = AUDIO.masterVolume;
         AUDIO.master.connect(AUDIO.ctx.destination);
 
         SFX.bus = AUDIO.ctx.createGain();
@@ -176,6 +220,7 @@
         BGM.bus = AUDIO.ctx.createGain();
         BGM.bus.gain.value = BGM.enabled ? BGM.volume : 0;
         BGM.bus.connect(AUDIO.master);
+        applyAudioMix();
         return AUDIO.ctx;
     }
 
@@ -191,9 +236,7 @@
             localStorage.setItem('survivors_sfx_enabled_v1', SFX.enabled ? '1' : '0');
         } catch {}
         updateSoundBtnText();
-        if (SFX.bus) {
-            SFX.bus.gain.value = SFX.enabled ? SFX.volume : 0;
-        }
+        applyAudioMix();
     }
 
     function stopSynthBgm() {
@@ -221,7 +264,7 @@
             localStorage.setItem('survivors_bgm_enabled_v1', BGM.enabled ? '1' : '0');
         } catch {}
         updateMusicBtnText();
-        if (BGM.bus) BGM.bus.gain.value = BGM.enabled ? BGM.volume : 0;
+        applyAudioMix();
         if (!BGM.enabled) {
             stopBgm(true);
             return;
@@ -261,7 +304,7 @@
         const a = new Audio(BGM.fileUrl);
         a.loop = true;
         a.preload = 'auto';
-        a.volume = clamp(BGM.volume, 0, 1);
+        a.volume = bgmElementVolume();
         a.addEventListener('error', () => {
             BGM.fileChecked = true;
             BGM.fileAvailable = false;
@@ -280,7 +323,7 @@
         if (!a) return false;
         stopSynthBgm();
         BGM.mode = 'file';
-        a.volume = clamp(BGM.volume, 0, 1);
+        a.volume = bgmElementVolume();
         const playPromise = a.play();
         if (playPromise && typeof playPromise.catch === 'function') {
             playPromise.catch(() => {
@@ -506,6 +549,12 @@
     musicBtn?.addEventListener('click', () => {
         setBgmEnabled(!BGM.enabled);
     });
+    volumeRange?.addEventListener('input', () => {
+        setMasterVolume(Number(volumeRange.value) / 100, false);
+    });
+    volumeRange?.addEventListener('change', () => {
+        setMasterVolume(Number(volumeRange.value) / 100, true);
+    });
     const unlockAudioAndMusic = () => {
         unlockAudio();
         if (BGM.enabled) startBgm();
@@ -515,6 +564,7 @@
     window.addEventListener('keydown', unlockAudioAndMusic);
     updateSoundBtnText();
     updateMusicBtnText();
+    updateVolumeUi();
     probeBgmFile();
 
     // ====== World settings ======
@@ -707,6 +757,8 @@
     let inReward = false;
     let rewardMode = 'none'; // none | level | chest
     let gameOver = false;
+    let menuState = 'start'; // start | pause | gameover
+    let lastRunSnapshot = { time: 0, kills: 0, level: 1, difficultyLabel: difficulty.label };
 
     let pendingLevelUps = 0;
     let pendingChestRewards = 0;
@@ -753,6 +805,51 @@
         timer: 0,
     };
 
+    function menuStartText() {
+        return `移动躲怪 · 自动攻击 · 吃经验升级 · 三选一成长（难度：${difficulty.label} · 最佳：${fmtTime(SAVE.bestTime || 0)}）`;
+    }
+
+    function menuPauseText() {
+        return `已暂停 · 存活：${fmtTime(elapsed)} · 等级：${player.level} · 击杀：${kills} · 难度：${difficulty.label}`;
+    }
+
+    function menuGameOverText() {
+        return `上次存活：${fmtTime(lastRunSnapshot.time)} · 最佳：${fmtTime(SAVE.bestTime || 0)} · 击杀：${lastRunSnapshot.kills} · 难度：${lastRunSnapshot.difficultyLabel}`;
+    }
+
+    function updateMenuText() {
+        if (!menuDesc) return;
+        if (menuState === 'pause') {
+            menuDesc.textContent = menuPauseText();
+            return;
+        }
+        if (menuState === 'gameover') {
+            menuDesc.textContent = menuGameOverText();
+            return;
+        }
+        menuDesc.textContent = menuStartText();
+    }
+
+    function setMenuState(mode) {
+        menuState = mode;
+        menu.classList.remove('hidden');
+        if (mode === 'pause') {
+            startBtn.textContent = '继续';
+        } else if (mode === 'gameover') {
+            startBtn.textContent = '再来一局';
+        } else {
+            startBtn.textContent = '开始';
+        }
+        updateMenuText();
+    }
+
+    function resumeFromPauseMenu() {
+        if (menuState !== 'pause' || gameOver) return;
+        menu.classList.add('hidden');
+        paused = false;
+        menuState = 'start';
+    }
+
     function setDifficulty(mode, save = true) {
         if (!CONFIG.difficulty[mode]) return;
         difficultyKey = mode;
@@ -762,12 +859,12 @@
             btn.classList.toggle('active', btn.dataset.diff === mode);
         });
         if (!menu.classList.contains('hidden')) {
-            menu.querySelector('p.muted').textContent =
-                `移动躲怪 · 自动攻击 · 吃经验升级 · 三选一成长（难度：${difficulty.label} · 最佳：${fmtTime(SAVE.bestTime || 0)}）`;
+            updateMenuText();
         }
     }
 
     diffRow?.addEventListener('click', (e) => {
+        if (menuState === 'pause') return;
         const btn = e.target.closest('.diffBtn');
         if (!btn) return;
         setDifficulty(btn.dataset.diff);
@@ -2075,10 +2172,12 @@
             SAVE.bestTime = elapsed;
             saveToDisk(SAVE);
         }
+        lastRunSnapshot.time = elapsed;
+        lastRunSnapshot.kills = kills;
+        lastRunSnapshot.level = player.level;
+        lastRunSnapshot.difficultyLabel = difficulty.label;
         setTimeout(() => {
-            menu.classList.remove('hidden');
-            menu.querySelector('p.muted').textContent =
-                `上次存活：${fmtTime(elapsed)} · 最佳：${fmtTime(SAVE.bestTime || 0)} · 击杀：${kills} · 难度：${difficulty.label}`;
+            setMenuState('gameover');
         }, 300);
     }
 
@@ -2392,17 +2491,31 @@
 
     function startGame() {
         menu.classList.add('hidden');
+        menuState = 'start';
         unlockAudio();
         startBgm();
         resetRun();
         announceEvent(`难度：${difficulty.label}`, 'rgba(175,230,255,0.98)', 1.6);
     }
 
-    startBtn.addEventListener('click', startGame);
+    startBtn.addEventListener('click', () => {
+        if (menuState === 'pause') {
+            resumeFromPauseMenu();
+            return;
+        }
+        startGame();
+    });
 
     function togglePause() {
         if (inReward || gameOver) return;
-        paused = !paused;
+        if (menu.classList.contains('hidden')) {
+            paused = true;
+            setMenuState('pause');
+            return;
+        }
+        if (menuState === 'pause') {
+            resumeFromPauseMenu();
+        }
     }
 
     function dash() {
@@ -3551,7 +3664,21 @@
     function updateHUD(dt) {
         hud.time.textContent = fmtTime(elapsed);
         hud.level.textContent = String(player.level);
+        const hpPct = clamp(player.hp / player.hpMax, 0, 1);
         hud.hp.textContent = `${Math.round(player.hp)} / ${Math.round(player.hpMax)}`;
+        if (hud.hpfill) {
+            hud.hpfill.style.transform = `scaleX(${hpPct})`;
+            if (hpPct > 0.66) {
+                hud.hpfill.style.background = 'linear-gradient(90deg, rgba(89,255,175,.95), rgba(118,235,255,.95))';
+                hud.hp.style.color = 'rgba(219,255,240,.95)';
+            } else if (hpPct > 0.33) {
+                hud.hpfill.style.background = 'linear-gradient(90deg, rgba(255,216,96,.96), rgba(255,145,74,.95))';
+                hud.hp.style.color = 'rgba(255,233,184,.97)';
+            } else {
+                hud.hpfill.style.background = 'linear-gradient(90deg, rgba(255,104,104,.98), rgba(255,64,94,.96))';
+                hud.hp.style.color = 'rgba(255,188,188,.98)';
+            }
+        }
         hud.kills.textContent = String(kills);
         hud.enemies.textContent = String(enemies.length);
         hud.combo.textContent = combo.count > 0 ? `x${combo.count}` : 'x0';
@@ -3627,9 +3754,7 @@
     function init() {
         resize();
         resetRun();
-
-        menu.querySelector('p.muted').textContent =
-            `移动躲怪 · 自动攻击 · 吃经验升级 · 三选一成长（难度：${difficulty.label} · 最佳：${fmtTime(SAVE.bestTime || 0)}）`;
+        setMenuState('start');
 
         if (isTouch) mobile.classList.remove('hidden');
     }
