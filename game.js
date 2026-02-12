@@ -1248,40 +1248,184 @@
     window.addEventListener('keyup', (e) => keys.delete(e.code));
 
     const isTouch = matchMedia('(pointer: coarse)').matches;
-    let stickState = { active: false, cx: 0, cy: 0, dx: 0, dy: 0 };
+    const hasPointer = 'PointerEvent' in window;
+    const STICK_SIZE = 140;
+    const STICK_KNOB_MAX = 44;
+    const STICK_DZ = 8;
+    let stickState = {
+        active: false,
+        pointerId: null,
+        cx: 0,
+        cy: 0,
+        dx: 0,
+        dy: 0,
+        dynamic: false,
+    };
     if (isTouch) mobile.classList.remove('hidden');
 
     function setKnob(dx, dy) {
-        const max = 44;
         const l = Math.hypot(dx, dy) || 1;
-        const k = l > max ? max / l : 1;
+        const k = l > STICK_KNOB_MAX ? STICK_KNOB_MAX / l : 1;
         stickKnob.style.transform = `translate(${dx * k}px, ${dy * k}px) translate(-50%,-50%)`;
     }
-    stick.addEventListener('pointerdown', (e) => {
+
+    function placeStickAt(clientX, clientY) {
+        const pad = 8;
+        const x = clamp(clientX - STICK_SIZE / 2, pad, W() - STICK_SIZE - pad);
+        const y = clamp(clientY - STICK_SIZE / 2, pad, H() - STICK_SIZE - pad);
+        stick.style.left = `${x}px`;
+        stick.style.top = `${y}px`;
+        stick.style.bottom = 'auto';
+    }
+
+    function resetStickPlacement() {
+        stick.style.left = '';
+        stick.style.top = '';
+        stick.style.bottom = '';
+    }
+
+    function updateStickFromPoint(clientX, clientY) {
+        stickState.dx = clientX - stickState.cx;
+        stickState.dy = clientY - stickState.cy;
+        setKnob(stickState.dx, stickState.dy);
+    }
+
+    function beginStick(pointerId, clientX, clientY, dynamic) {
         stickState.active = true;
-        stick.setPointerCapture(e.pointerId);
+        stickState.pointerId = pointerId;
+        stickState.dynamic = dynamic;
+        if (dynamic) placeStickAt(clientX, clientY);
         const r = stick.getBoundingClientRect();
         stickState.cx = r.left + r.width / 2;
         stickState.cy = r.top + r.height / 2;
-        stickState.dx = 0;
-        stickState.dy = 0;
-        setKnob(0, 0);
-    });
-    stick.addEventListener('pointermove', (e) => {
-        if (!stickState.active) return;
-        stickState.dx = e.clientX - stickState.cx;
-        stickState.dy = e.clientY - stickState.cy;
-        setKnob(stickState.dx, stickState.dy);
-    });
-    stick.addEventListener('pointerup', () => {
-        stickState.active = false;
-        stickState.dx = 0;
-        stickState.dy = 0;
-        setKnob(0, 0);
-    });
+        updateStickFromPoint(clientX, clientY);
+    }
 
-    dashBtn.addEventListener('click', () => dash());
-    pauseBtn.addEventListener('click', () => togglePause());
+    function endStick(pointerId = null) {
+        if (!stickState.active) return;
+        if (pointerId !== null && stickState.pointerId !== null && pointerId !== stickState.pointerId) return;
+        stickState.active = false;
+        stickState.pointerId = null;
+        stickState.dx = 0;
+        stickState.dy = 0;
+        if (stickState.dynamic) resetStickPlacement();
+        stickState.dynamic = false;
+        setKnob(0, 0);
+    }
+
+    function shouldIgnoreStickStart(target) {
+        if (!target || typeof target.closest !== 'function') return false;
+        return !!(
+            target.closest('#dashBtn') ||
+            target.closest('#pauseBtn') ||
+            target.closest('#menu') ||
+            target.closest('#overlay') ||
+            target.closest('#card')
+        );
+    }
+
+    function bindMobileInput() {
+        // hard-stop browser gesture scrolling during gameplay surfaces
+        const prevent = (e) => {
+            if (!isTouch) return;
+            if (e.cancelable) e.preventDefault();
+        };
+        window.addEventListener('touchmove', prevent, { passive: false });
+        window.addEventListener('gesturestart', prevent, { passive: false });
+
+        if (hasPointer) {
+            stick.addEventListener('pointerdown', (e) => {
+                if (!isTouch || e.pointerType === 'mouse') return;
+                if (stickState.active) return;
+                if (e.cancelable) e.preventDefault();
+                e.stopPropagation();
+                beginStick(e.pointerId, e.clientX, e.clientY, false);
+            }, { passive: false });
+
+            window.addEventListener('pointerdown', (e) => {
+                if (!isTouch || e.pointerType === 'mouse') return;
+                if (stickState.active) return;
+                if (e.clientX > W() * 0.62) return;
+                if (shouldIgnoreStickStart(e.target)) return;
+                if (e.cancelable) e.preventDefault();
+                beginStick(e.pointerId, e.clientX, e.clientY, true);
+            }, { passive: false });
+
+            window.addEventListener('pointermove', (e) => {
+                if (!stickState.active) return;
+                if (stickState.pointerId !== null && e.pointerId !== stickState.pointerId) return;
+                if (e.cancelable) e.preventDefault();
+                updateStickFromPoint(e.clientX, e.clientY);
+            }, { passive: false });
+
+            window.addEventListener('pointerup', (e) => {
+                endStick(e.pointerId);
+            }, { passive: false });
+            window.addEventListener('pointercancel', (e) => {
+                endStick(e.pointerId);
+            }, { passive: false });
+        } else {
+            // Fallback for older browsers without pointer events.
+            window.addEventListener('touchstart', (e) => {
+                if (!isTouch || stickState.active) return;
+                const t = e.changedTouches[0];
+                if (!t) return;
+                if (t.clientX > W() * 0.62) return;
+                if (shouldIgnoreStickStart(e.target)) return;
+                if (e.cancelable) e.preventDefault();
+                beginStick(t.identifier, t.clientX, t.clientY, true);
+            }, { passive: false });
+            window.addEventListener('touchmove', (e) => {
+                if (!stickState.active) return;
+                let t = null;
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === stickState.pointerId) {
+                        t = e.changedTouches[i];
+                        break;
+                    }
+                }
+                if (!t) return;
+                if (e.cancelable) e.preventDefault();
+                updateStickFromPoint(t.clientX, t.clientY);
+            }, { passive: false });
+            window.addEventListener('touchend', (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === stickState.pointerId) {
+                        endStick(stickState.pointerId);
+                        break;
+                    }
+                }
+            }, { passive: false });
+            window.addEventListener('touchcancel', () => endStick(stickState.pointerId), { passive: false });
+        }
+
+        window.addEventListener('blur', () => endStick());
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) endStick();
+        });
+    }
+
+    if (isTouch) bindMobileInput();
+
+    if (isTouch) {
+        const dashHandler = (e) => {
+            if (e?.cancelable) e.preventDefault();
+            dash();
+        };
+        const pauseHandler = (e) => {
+            if (e?.cancelable) e.preventDefault();
+            togglePause();
+        };
+        dashBtn.addEventListener('pointerdown', dashHandler, { passive: false });
+        pauseBtn.addEventListener('pointerdown', pauseHandler, { passive: false });
+        if (!hasPointer) {
+            dashBtn.addEventListener('touchstart', dashHandler, { passive: false });
+            pauseBtn.addEventListener('touchstart', pauseHandler, { passive: false });
+        }
+    } else {
+        dashBtn.addEventListener('click', () => dash());
+        pauseBtn.addEventListener('click', () => togglePause());
+    }
 
     function moveInput() {
         let x = 0, y = 0;
@@ -1292,8 +1436,7 @@
 
         if (stickState.active) {
             const n = norm(stickState.dx, stickState.dy);
-            const dz = 8;
-            const m = clamp((n.l - dz) / 44, 0, 1);
+            const m = clamp((n.l - STICK_DZ) / STICK_KNOB_MAX, 0, 1);
             x += n.x * m;
             y += n.y * m;
         }
