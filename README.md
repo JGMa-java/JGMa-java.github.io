@@ -4,7 +4,7 @@
 
 1、修复遇到宝箱卡死。
 
-
+2、增加音效
 
 ### Vampire Survivors Lite  V2.2.3
 

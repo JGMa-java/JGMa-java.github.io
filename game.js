@@ -44,6 +44,7 @@
     const startBtn = document.getElementById('startBtn');
     const howBtn = document.getElementById('howBtn');
     const resetBtn = document.getElementById('resetBtn');
+    const soundBtn = document.getElementById('soundBtn');
     const howBox = document.getElementById('how');
     const diffRow = document.getElementById('diffRow');
     const diffBtns = [...document.querySelectorAll('.diffBtn')];
@@ -77,6 +78,177 @@
             [arr[i], arr[j]] = [arr[j], arr[i]];
         }
     };
+
+    // ====== Audio / SFX ======
+    function loadSfxEnabled() {
+        try {
+            const raw = localStorage.getItem('survivors_sfx_enabled_v1');
+            if (raw === null) return true;
+            return raw !== '0';
+        } catch {
+            return true;
+        }
+    }
+
+    const SFX = {
+        supported: !!(window.AudioContext || window.webkitAudioContext),
+        enabled: loadSfxEnabled(),
+        volume: 0.22,
+        ctx: null,
+        master: null,
+        last: Object.create(null),
+    };
+
+    function updateSoundBtnText() {
+        if (!soundBtn) return;
+        if (!SFX.supported) {
+            soundBtn.textContent = '音效：不支持';
+            soundBtn.disabled = true;
+            return;
+        }
+        soundBtn.disabled = false;
+        soundBtn.textContent = `音效：${SFX.enabled ? '开' : '关'}`;
+    }
+
+    function ensureAudio() {
+        if (!SFX.supported || !SFX.enabled) return null;
+        if (SFX.ctx) return SFX.ctx;
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        SFX.ctx = new Ctor();
+        SFX.master = SFX.ctx.createGain();
+        SFX.master.gain.value = SFX.volume;
+        SFX.master.connect(SFX.ctx.destination);
+        return SFX.ctx;
+    }
+
+    function unlockAudio() {
+        const ctx = ensureAudio();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+    }
+
+    function setSfxEnabled(v) {
+        SFX.enabled = !!v;
+        try {
+            localStorage.setItem('survivors_sfx_enabled_v1', SFX.enabled ? '1' : '0');
+        } catch {}
+        updateSoundBtnText();
+        if (SFX.master) {
+            SFX.master.gain.value = SFX.enabled ? SFX.volume : 0;
+        }
+    }
+
+    function sfxThrottle(tag, gapMs) {
+        const now = performance.now();
+        const prev = SFX.last[tag] || 0;
+        if (now - prev < gapMs) return false;
+        SFX.last[tag] = now;
+        return true;
+    }
+
+    function toneAt(start, {
+        freq = 440,
+        dur = 0.06,
+        type = 'triangle',
+        gain = 0.05,
+        attack = 0.004,
+        release = 0.08,
+        slide = 0,
+    } = {}) {
+        if (!SFX.enabled) return;
+        const ctx = ensureAudio();
+        if (!ctx || !SFX.master) return;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(Math.max(20, freq), start);
+        if (slide) {
+            osc.frequency.exponentialRampToValueAtTime(Math.max(20, freq + slide), start + dur);
+        }
+        g.gain.setValueAtTime(0.0001, start);
+        g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), start + attack);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + dur + release);
+        osc.connect(g);
+        g.connect(SFX.master);
+        osc.start(start);
+        osc.stop(start + dur + release + 0.01);
+    }
+
+    function playSfx(tag) {
+        if (!SFX.supported || !SFX.enabled) return;
+        const ctx = ensureAudio();
+        if (!ctx) return;
+        const t = ctx.currentTime;
+
+        if (tag === 'dash') {
+            if (!sfxThrottle('dash', 80)) return;
+            toneAt(t, { freq: 220, dur: 0.07, gain: 0.045, slide: 280, type: 'sawtooth' });
+            return;
+        }
+        if (tag === 'hurt') {
+            if (!sfxThrottle('hurt', 110)) return;
+            toneAt(t, { freq: 150, dur: 0.08, gain: 0.06, slide: -55, type: 'square' });
+            return;
+        }
+        if (tag === 'kill') {
+            if (!sfxThrottle('kill', 28)) return;
+            toneAt(t, { freq: 320 + rand(-22, 26), dur: 0.03, gain: 0.03, slide: -90, type: 'triangle' });
+            return;
+        }
+        if (tag === 'crit') {
+            if (!sfxThrottle('crit', 55)) return;
+            toneAt(t, { freq: 560, dur: 0.05, gain: 0.055, slide: 220, type: 'triangle' });
+            toneAt(t + 0.03, { freq: 760, dur: 0.05, gain: 0.042, slide: 180, type: 'sine' });
+            return;
+        }
+        if (tag === 'xp') {
+            if (!sfxThrottle('xp', 40)) return;
+            toneAt(t, { freq: 420 + rand(-30, 25), dur: 0.035, gain: 0.026, slide: 70, type: 'sine' });
+            return;
+        }
+        if (tag === 'levelup') {
+            if (!sfxThrottle('levelup', 120)) return;
+            toneAt(t, { freq: 390, dur: 0.06, gain: 0.045, slide: 80, type: 'triangle' });
+            toneAt(t + 0.055, { freq: 520, dur: 0.07, gain: 0.05, slide: 120, type: 'triangle' });
+            toneAt(t + 0.11, { freq: 690, dur: 0.08, gain: 0.055, slide: 160, type: 'sine' });
+            return;
+        }
+        if (tag === 'chest') {
+            if (!sfxThrottle('chest', 160)) return;
+            toneAt(t, { freq: 260, dur: 0.07, gain: 0.055, slide: 40, type: 'square' });
+            toneAt(t + 0.06, { freq: 420, dur: 0.08, gain: 0.055, slide: 90, type: 'triangle' });
+            toneAt(t + 0.11, { freq: 620, dur: 0.09, gain: 0.05, slide: 120, type: 'sine' });
+            return;
+        }
+        if (tag === 'rage_on') {
+            if (!sfxThrottle('rage_on', 260)) return;
+            toneAt(t, { freq: 170, dur: 0.12, gain: 0.07, slide: 80, type: 'sawtooth' });
+            toneAt(t + 0.06, { freq: 290, dur: 0.12, gain: 0.065, slide: 170, type: 'sawtooth' });
+            toneAt(t + 0.13, { freq: 470, dur: 0.15, gain: 0.06, slide: 240, type: 'triangle' });
+            return;
+        }
+        if (tag === 'evolve') {
+            if (!sfxThrottle('evolve', 320)) return;
+            toneAt(t, { freq: 300, dur: 0.12, gain: 0.065, slide: 150, type: 'triangle' });
+            toneAt(t + 0.09, { freq: 510, dur: 0.15, gain: 0.06, slide: 220, type: 'sine' });
+            toneAt(t + 0.19, { freq: 760, dur: 0.17, gain: 0.055, slide: 330, type: 'sine' });
+            return;
+        }
+        if (tag === 'boss') {
+            if (!sfxThrottle('boss', 300)) return;
+            toneAt(t, { freq: 120, dur: 0.2, gain: 0.07, slide: -20, type: 'sawtooth' });
+            toneAt(t + 0.14, { freq: 90, dur: 0.18, gain: 0.06, slide: -15, type: 'square' });
+        }
+    }
+
+    soundBtn?.addEventListener('click', () => {
+        setSfxEnabled(!SFX.enabled);
+        if (SFX.enabled) unlockAudio();
+    });
+    window.addEventListener('pointerdown', () => unlockAudio(), { passive: true });
+    window.addEventListener('touchstart', () => unlockAudio(), { passive: true });
+    window.addEventListener('keydown', () => unlockAudio());
+    updateSoundBtnText();
 
     // ====== World settings ======
     const W = () => canvas.clientWidth;
@@ -383,6 +555,7 @@
             announceEvent('RAGE MODE 激活！', 'rgba(255,130,120,0.98)', 2.4);
             cinematic.flash = Math.max(cinematic.flash, 0.32);
             addScreenShake(CONFIG.rage.activateShake.mag, CONFIG.rage.activateShake.duration);
+            playSfx('rage_on');
         }
     }
 
@@ -1234,6 +1407,10 @@
         if (e.repeat) return;
         keys.add(e.code);
 
+        if (e.code === 'KeyM') {
+            setSfxEnabled(!SFX.enabled);
+            if (SFX.enabled) unlockAudio();
+        }
         if (e.code === 'KeyP') togglePause();
         if (e.code === 'Escape' && inReward) closeRewardPanel();
 
@@ -1527,6 +1704,7 @@
         weapons.delete(baseKey);
         addWeapon(evo.to);
         announceEvent(`武器进化：${evo.name}！`, 'rgba(255,240,150,0.98)', 3.2);
+        playSfx('evolve');
         cinematic.flash = Math.max(cinematic.flash, 0.95);
         cinematic.text = `进化达成 · ${evo.name}`;
         cinematic.textTTL = 2.1;
@@ -1563,6 +1741,7 @@
                 isCrit = true;
             }
         }
+        if (isCrit) playSfx('crit');
         finalDmg = Math.max(0.2, finalDmg);
 
         e.hp -= finalDmg;
@@ -1583,6 +1762,7 @@
 
         e.dead = true;
         kills++;
+        playSfx('kill');
         applyComboOnKill(e.x, e.y);
 
         spawnPickup(e.x, e.y, 'xp', enemyXpDrop(e));
@@ -1610,6 +1790,7 @@
         if (player.iFrames > 0) return;
         const final = Math.max(1, dmg - player.armor);
         player.hp -= final;
+        playSfx('hurt');
         gainRage(CONFIG.rage.gainFromDamage * (CONFIG.rage.gainFromDamageBase + final * CONFIG.rage.gainFromDamagePerPoint));
         player.iFrames = 0.45;
         fx.push({ x: player.x, y: player.y, t: 0, kind: 'hurt', duration: 0.35 });
@@ -1684,6 +1865,7 @@
         choicesEl.classList.add('dimmed');
         rewardCinematic.classList.remove('hidden');
         rewardCinematic.textContent = `宝箱开启中... 剩余 ${pendingChestRewards} 次奖励`;
+        playSfx('chest');
         cinematic.flash = Math.max(cinematic.flash, 0.45);
         for (let i = 0; i < 12; i++) {
             const a = rand(0, TAU);
@@ -1939,6 +2121,7 @@
 
     function startGame() {
         menu.classList.add('hidden');
+        unlockAudio();
         resetRun();
         announceEvent(`难度：${difficulty.label}`, 'rgba(175,230,255,0.98)', 1.6);
     }
@@ -1955,6 +2138,7 @@
         if (player.dash.cd > 0) return;
         player.dash.duration = 0.18;
         player.dash.cd = 1.0;
+        playSfx('dash');
     }
 
     function addXp(v) {
@@ -1964,6 +2148,7 @@
             player.level += 1;
             player.nextXp = calcNextXp(player.level);
             pendingLevelUps += 1;
+            playSfx('levelup');
         }
         openNextRewardPanel();
     }
@@ -1999,6 +2184,7 @@
         }
 
         announceEvent(`Boss 来袭！(${fmtTime(elapsed)})`, 'rgba(255,90,90,0.99)', 4);
+        playSfx('boss');
         spawnEnemy('boss', { hpMul: 1 + waveCount * 0.08 });
         const guards = 4 + Math.floor(waveCount / 3);
         for (let i = 0; i < guards; i++) spawnEnemy('elite', { hpMul: 0.9 });
@@ -2370,11 +2556,14 @@
 
             if (g.kind === 'xp') {
                 addXp(g.value);
+                if (g.value >= 6 || Math.random() < 0.22) playSfx('xp');
             } else if (g.kind === 'heal') {
                 player.hp = Math.min(player.hpMax, player.hp + g.value);
+                playSfx('xp');
             } else if (g.kind === 'chest') {
                 pendingChestRewards += g.value;
                 announceEvent(`获得宝箱：可选择 ${g.value} 次奖励`, 'rgba(255,220,130,0.98)', 2.8);
+                playSfx('chest');
                 cinematic.flash = Math.max(cinematic.flash, 0.28);
                 for (let j = 0; j < 10; j++) {
                     const a = rand(0, TAU);
