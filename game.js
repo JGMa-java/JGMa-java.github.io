@@ -107,11 +107,13 @@
 
     function loadMasterVolume() {
         try {
-            const raw = Number(localStorage.getItem('survivors_master_volume_v1'));
-            if (!Number.isFinite(raw)) return 1.25;
-            return clamp(raw, 0, 2);
+            const raw = localStorage.getItem('survivors_master_volume_v1');
+            if (raw === null) return 1;
+            const n = Number(raw);
+            if (!Number.isFinite(n)) return 1;
+            return clamp(n, 0, 2);
         } catch {
-            return 1.25;
+            return 1;
         }
     }
 
@@ -1875,6 +1877,13 @@
         // hard-stop browser gesture scrolling during gameplay surfaces
         const prevent = (e) => {
             if (!isTouch) return;
+            const target = e.target;
+            if (target && typeof target.closest === 'function') {
+                // Keep menu/reward panel controls (especially range slider) draggable.
+                if (target.closest('#menu') || target.closest('#overlay') || target.closest('input,select,textarea,button')) {
+                    return;
+                }
+            }
             if (e.cancelable) e.preventDefault();
         };
         window.addEventListener('touchmove', prevent, { passive: false });

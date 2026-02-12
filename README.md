@@ -1,5 +1,9 @@
 
 
+### Vampire Survivors Lite  V2.2.7
+
+1、bugfix:音量调节失效。
+
 ### Vampire Survivors Lite  V2.2.6
 
 1. 先检查是否在当前显示区域内
