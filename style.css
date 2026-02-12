@@ -1,0 +1,147 @@
+:root{
+    --bg:#070b18;
+    --panel:rgba(255,255,255,.08);
+    --panel2:rgba(255,255,255,.12);
+    --txt:rgba(255,255,255,.92);
+    --muted:rgba(255,255,255,.68);
+    --good:#66ffcc;
+    --warn:#ffcc66;
+    --bad:#ff6b6b;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:radial-gradient(900px 700px at 25% 20%, #132350 0%, var(--bg) 55%, #050711 100%);color:var(--txt);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif}
+#wrap{position:relative; height:100%; width:100%; overflow:hidden}
+canvas{display:block; width:100%; height:100%}
+
+#hud{
+    position:absolute; top:10px; left:10px; right:10px;
+    display:flex; flex-direction:column; gap:8px;
+    pointer-events:none;
+}
+.row{display:flex; gap:8px; flex-wrap:wrap}
+.row.small{opacity:.9}
+.pill{
+    background:var(--panel);
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:999px;
+    padding:8px 10px;
+    display:inline-flex; gap:10px; align-items:center;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+.k{color:var(--muted); font-size:12px}
+
+.xpbar{
+    position:relative;
+    height:18px;
+    width:min(520px, 92vw);
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(0,0,0,.25);
+    overflow:hidden;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+.xpfill{
+    position:absolute; left:0; top:0; bottom:0;
+    width:0%;
+    background:linear-gradient(90deg, rgba(102,255,204,.85), rgba(140,200,255,.85));
+}
+.xptxt{
+    position:absolute; inset:0;
+    display:grid; place-items:center;
+    font-size:12px;
+    color:rgba(255,255,255,.86);
+    text-shadow:0 1px 2px rgba(0,0,0,.45);
+}
+
+#overlay{
+    position:absolute; inset:0;
+    background:rgba(0,0,0,.55);
+    display:grid; place-items:center;
+    padding:18px;
+}
+.hidden{display:none !important}
+#card{
+    width:min(720px, 96vw);
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(12,16,34,.92);
+    box-shadow:0 40px 120px rgba(0,0,0,.55);
+    padding:16px;
+}
+#card h2{margin:6px 0 12px 0; font-size:18px}
+#choices{display:grid; grid-template-columns:1fr; gap:10px}
+.choice{
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);
+    padding:12px;
+    cursor:pointer;
+}
+.choice:hover{background:rgba(255,255,255,.10)}
+.choice .t{display:flex; justify-content:space-between; gap:10px; align-items:baseline}
+.choice .name{font-weight:700}
+.choice .tag{font-size:12px;color:var(--muted)}
+.choice .desc{margin-top:6px; color:rgba(255,255,255,.78); font-size:13px}
+.hint{margin-top:10px; color:var(--muted); font-size:12px}
+
+#menu{
+    position:absolute; inset:0;
+    display:grid; place-items:center;
+    padding:18px;
+    background:rgba(0,0,0,.35);
+}
+.menuCard{
+    width:min(520px, 94vw);
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(12,16,34,.92);
+    padding:16px;
+    box-shadow:0 40px 120px rgba(0,0,0,.55);
+}
+.menuCard h1{margin:6px 0 10px 0; font-size:22px}
+.muted{color:var(--muted)}
+.tiny{margin-top:10px; font-size:12px; opacity:.85}
+.btnRow{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px}
+button{
+    background:rgba(255,255,255,.12);
+    border:1px solid rgba(255,255,255,.16);
+    color:var(--txt);
+    padding:10px 12px;
+    border-radius:12px;
+    cursor:pointer;
+}
+button:hover{background:rgba(255,255,255,.16)}
+ul{margin:8px 0 0 18px}
+
+#mobile{
+    position:absolute; inset:0;
+    pointer-events:none;
+}
+#stick{
+    position:absolute; left:14px; bottom:18px;
+    width:140px; height:140px;
+    pointer-events:auto;
+}
+#stickBase{
+    position:absolute; inset:0;
+    border-radius:999px;
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.10);
+}
+#stickKnob{
+    position:absolute;
+    left:50%; top:50%;
+    width:56px; height:56px;
+    transform:translate(-50%,-50%);
+    border-radius:999px;
+    background:rgba(255,255,255,.16);
+    border:1px solid rgba(255,255,255,.16);
+}
+#dashBtn,#pauseBtn{
+    position:absolute; right:14px;
+    width:92px;
+    pointer-events:auto;
+}
+#dashBtn{bottom:24px}
+#pauseBtn{bottom:74px}

@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>卫星-地面接收器 信号模拟</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: rgba(255,255,255,.06);
+      --panel2: rgba(255,255,255,.10);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.65);
+      --good: #66ffcc;
+      --warn: #ffcc66;
+      --bad:  #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(1200px 800px at 30% 20%, #15224a 0%, var(--bg) 55%, #070a14 100%);
+      color: var(--text);
+      font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      min-height: 100vh;
+    }
+    #stageWrap {
+      display: grid;
+      place-items: center;
+      padding: 18px;
+    }
+    canvas {
+      width: min(900px, calc(100vw - 340px - 48px));
+      height: min(900px, calc(100vh - 48px));
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      box-shadow: 0 30px 80px rgba(0,0,0,.45);
+      border: 1px solid rgba(255,255,255,.08);
+      cursor: crosshair;
+    }
+    aside {
+      padding: 18px 18px 18px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 20px 50px rgba(0,0,0,.25);
+    }
+    .title {
+      font-size: 14px;
+      letter-spacing: .2px;
+      margin: 0 0 10px 0;
+      color: rgba(255,255,255,.95);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; margin: 10px 0; }
+    .row label { color: rgba(255,255,255,.86); }
+    input[type="range"] { width: 100%; }
+    input[type="number"] {
+      width: 90px;
+      background: var(--panel2);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 8px 10px;
+      outline: none;
+    }
+    button {
+      background: rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.14);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform .06s ease, background .15s ease;
+      user-select: none;
+    }
+    button:hover { background: rgba(255,255,255,.14); }
+    button:active { transform: translateY(1px); }
+    .btnRow { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.86);
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 99px; background: var(--good); box-shadow: 0 0 12px rgba(102,255,204,.6); }
+    .dot.paused { background: var(--warn); box-shadow: 0 0 12px rgba(255,204,102,.55); }
+    .dot.off { background: var(--bad); box-shadow: 0 0 12px rgba(255,107,107,.55); }
+    .log {
+      max-height: 240px;
+      overflow: auto;
+      padding-right: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      color: rgba(255,255,255,.82);
+    }
+    .log .muted { color: rgba(255,255,255,.55); }
+    .logLine { padding: 6px 8px; border-radius: 10px; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.06); margin: 6px 0; }
+    .hint { color: rgba(255,255,255,.70); font-size: 12px; }
+    .kbd { font-family: ui-monospace, monospace; padding: 1px 6px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); }
+    @media (max-width: 980px) {
+      body { grid-template-columns: 1fr; }
+      aside { padding: 0 18px 18px; }
+      canvas { width: calc(100vw - 36px); height: min(72vh, 720px); }
+    }
+  </style>
+</head>
+<body>
+  <div id="stageWrap">
+    <canvas id="c"></canvas>
+  </div>
+
+  <aside>
+    <div class="card">
+      <div class="title">
+        <span>卫星信号模拟</span>
+        <span class="pill"><span id="statusDot" class="dot"></span><span id="statusText">运行中</span></span>
+      </div>
+      <div class="subtitle">
+        卫星绕地球运动，周期性发射信号波；地面接收器在可见且信号到达时接收并闪烁。
+      </div>
+      <div class="subtitle hint" style="margin-top:10px">
+        交互：点击画布地球边缘可添加接收器；<span class="kbd">Space</span> 暂停/继续；<span class="kbd">R</span> 重置。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="title">控制面板</div>
+
+      <div class="row">
+        <label>时间倍率（速度）</label>
+        <input id="speed" type="range" min="0.2" max="4" step="0.1" value="1.3" />
+      </div>
+
+      <div class="row">
+        <label>信号发射间隔（秒）</label>
+        <input id="interval" type="number" min="0.3" max="10" step="0.1" value="1.5" />
+      </div>
+
+      <div class="row">
+        <label>信号传播速度（像素/秒）</label>
+        <input id="waveSpeed" type="number" min="80" max="900" step="10" value="320" />
+      </div>
+
+      <div class="row">
+        <label>接收判定宽容（像素）</label>
+        <input id="tolerance" type="number" min="2" max="40" step="1" value="10" />
+      </div>
+
+      <div class="btnRow" style="margin-top:12px">
+        <button id="toggle">暂停</button>
+        <button id="emit">立即发射</button>
+        <button id="clearWaves">清空信号</button>
+        <button id="reset">重置场景</button>
+      </div>
+
+      <div class="subtitle">
+        注：本模拟使用二维几何近似“可见性”（卫星在接收器地平线之上）与“信号传播”（圆形波前）。
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="title">接收日志</div>
+      <div id="log" class="log"></div>
+      <div class="subtitle muted">最多保留 60 条。</div>
+    </div>
+  </aside>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  // --- UI ---
+  const elSpeed = document.getElementById('speed');
+  const elInterval = document.getElementById('interval');
+  const elWaveSpeed = document.getElementById('waveSpeed');
+  const elTol = document.getElementById('tolerance');
+  const btnToggle = document.getElementById('toggle');
+  const btnEmit = document.getElementById('emit');
+  const btnClear = document.getElementById('clearWaves');
+  const btnReset = document.getElementById('reset');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const logEl = document.getElementById('log');
+
+  // HiDPI resize
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
+  }
+  window.addEventListener('resize', resize);
+
+  // --- Simulation state ---
+  let running = true;
+  let t = 0; // seconds
+  let last = performance.now();
+  let emitAcc = 0;
+
+  const state = {
+    earthRadius: 160,
+    orbitRadius: 290,
+    satAngularSpeed: 0.55, // rad/s (scaled by speed slider)
+    satPhase: 0,           // rad
+    waves: [],             // {x,y,r,age, id}
+    receivers: [],         // {angle, x,y, id, lastHitAt, flash}
+    nextWaveId: 1,
+    nextRxId: 1,
+    maxLog: 60
+  };
+
+  function resetScene() {
+    state.waves = [];
+    state.nextWaveId = 1;
+    state.receivers = [];
+    state.nextRxId = 1;
+    t = 0;
+    emitAcc = 0;
+
+    // Default receivers (angles in radians)
+    const defaults = [-2.2, -1.1, 0.2, 1.3, 2.4];
+    for (const a of defaults) addReceiver(a);
+
+    logEl.innerHTML = '';
+    log(`系统：已重置场景。`, 'muted');
+  }
+
+  // Geometry helpers
+  const TAU = Math.PI * 2;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  function normAngle(a) {
+    a = a % TAU;
+    if (a < -Math.PI) a += TAU;
+    if (a >  Math.PI) a -= TAU;
+    return a;
+  }
+  function dist(ax, ay, bx, by) {
+    const dx = ax - bx, dy = ay - by;
+    return Math.hypot(dx, dy);
+  }
+
+  function getCenter() {
+    const rect = canvas.getBoundingClientRect();
+    return { cx: rect.width / 2, cy: rect.height / 2 };
+  }
+
+  function addReceiver(angle) {
+    const {cx, cy} = getCenter();
+    const r = state.earthRadius;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    state.receivers.push({
+      angle,
+      x, y,
+      id: state.nextRxId++,
+      lastHitAt: -Infinity,
+      flash: 0
+    });
+    log(`接收器#${state.receivers[state.receivers.length-1].id}：已添加（角度 ${angle.toFixed(2)} rad）。`, 'muted');
+  }
+
+  function updateReceiverPositions() {
+    const {cx, cy} = getCenter();
+    const r = state.earthRadius;
+    for (const rx of state.receivers) {
+      rx.x = cx + Math.cos(rx.angle) * r;
+      rx.y = cy + Math.sin(rx.angle) * r;
+    }
+  }
+
+  function satellitePos() {
+    const {cx, cy} = getCenter();
+    const R = state.orbitRadius;
+    const a = state.satPhase;
+    return {
+      x: cx + Math.cos(a) * R,
+      y: cy + Math.sin(a) * R,
+      a
+    };
+  }
+
+  // Visibility test: satellite must be above local horizon for that receiver
+  // In 2D: let n = unit vector from Earth center to receiver (outward normal).
+  // Satellite is visible if dot( (sat - receiver), n ) > 0
+  function isVisibleFromReceiver(sx, sy, rx) {
+    const {cx, cy} = getCenter();
+    const nx = (rx.x - cx) / state.earthRadius;
+    const ny = (rx.y - cy) / state.earthRadius;
+    const vx = sx - rx.x;
+    const vy = sy - rx.y;
+    return (vx * nx + vy * ny) > 0;
+  }
+
+  function emitWave() {
+    const {x, y} = satellitePos();
+    state.waves.push({ x, y, r: 0, age: 0, id: state.nextWaveId++ });
+  }
+
+  function log(msg, cls) {
+    const line = document.createElement('div');
+    line.className = 'logLine' + (cls ? ` ${cls}` : '');
+    const ts = new Date().toLocaleTimeString();
+    line.textContent = `[${ts}] ${msg}`;
+    logEl.prepend(line);
+    // trim
+    while (logEl.children.length > state.maxLog) logEl.removeChild(logEl.lastChild);
+  }
+
+  function setRunning(v) {
+    running = v;
+    btnToggle.textContent = running ? '暂停' : '继续';
+    statusText.textContent = running ? '运行中' : '已暂停';
+    statusDot.classList.toggle('paused', !running);
+  }
+
+  // Drawing
+  function drawBackgroundStars(w, h) {
+    // simple deterministic starfield based on canvas size
+    ctx.save();
+    ctx.globalAlpha = 0.65;
+    const n = 180;
+    for (let i = 0; i < n; i++) {
+      const x = (Math.sin(i * 999) * 0.5 + 0.5) * w;
+      const y = (Math.sin(i * 333 + 1.7) * 0.5 + 0.5) * h;
+      const r = ((Math.sin(i * 77 + 0.2) * 0.5 + 0.5) * 1.4) + 0.2;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, TAU);
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawEarth(cx, cy) {
+    // Earth body
+    ctx.save();
+    const r = state.earthRadius;
+    const g = ctx.createRadialGradient(cx - r*0.35, cy - r*0.35, r*0.2, cx, cy, r);
+    g.addColorStop(0, 'rgba(80,170,255,0.95)');
+    g.addColorStop(0.55, 'rgba(35,120,220,0.95)');
+    g.addColorStop(1, 'rgba(10,40,90,0.98)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.fill();
+
+    // Atmosphere
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = 'rgba(140,220,255,0.9)';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 6, 0, TAU);
+    ctx.stroke();
+
+    // Terminator-ish shadow
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.arc(cx + r*0.35, cy + r*0.15, r*0.98, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawOrbit(cx, cy) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 8]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, state.orbitRadius, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  function drawSatellite(sx, sy) {
+    ctx.save();
+    // body
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 6, 0, TAU);
+    ctx.fill();
+
+    // solar panels
+    ctx.fillStyle = 'rgba(140,200,255,0.85)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(sx - 22, sy - 4, 14, 8, 2);
+    ctx.roundRect(sx + 8,  sy - 4, 14, 8, 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // antenna
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + 12, sy + 10);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawReceivers() {
+    ctx.save();
+    for (const rx of state.receivers) {
+      const flash = rx.flash; // 0..1
+      const baseAlpha = 0.85;
+      const a = clamp(baseAlpha + flash * 0.55, 0, 1);
+
+      // marker
+      ctx.fillStyle = `rgba(102,255,204,${a})`;
+      ctx.strokeStyle = `rgba(255,255,255,${0.25 + flash*0.25})`;
+      ctx.lineWidth = 1.2;
+
+      ctx.beginPath();
+      ctx.arc(rx.x, rx.y, 5.5 + flash*2.5, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+
+      // small "antenna" line outward
+      const {cx, cy} = getCenter();
+      const nx = (rx.x - cx) / state.earthRadius;
+      const ny = (rx.y - cy) / state.earthRadius;
+      ctx.strokeStyle = `rgba(102,255,204,${0.35 + flash*0.4})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(rx.x, rx.y);
+      ctx.lineTo(rx.x + nx * (12 + flash*8), rx.y + ny * (12 + flash*8));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawWaves() {
+    ctx.save();
+    for (const w of state.waves) {
+      // fade with age and radius
+      const alpha = clamp(0.65 * Math.exp(-w.age * 0.55), 0, 0.65);
+      ctx.strokeStyle = `rgba(140,200,255,${alpha})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawLOS(sx, sy) {
+    // optional: draw line-of-sight to receivers when visible
+    ctx.save();
+    for (const rx of state.receivers) {
+      if (!isVisibleFromReceiver(sx, sy, rx)) continue;
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(rx.x, rx.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawHUD(cx, cy, sx, sy) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+    ctx.fillText(`接收器: ${state.receivers.length}  |  信号波: ${state.waves.length}`, 16, 22);
+
+    // sat info
+    const alt = state.orbitRadius - state.earthRadius;
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillText(`轨道半径: ${state.orbitRadius.toFixed(0)} px  |  高度: ${alt.toFixed(0)} px`, 16, 40);
+
+    // little legend
+    ctx.fillStyle = 'rgba(102,255,204,0.85)';
+    ctx.fillText('● 接收器  ', 16, 58);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillText('● 卫星', 90, 58);
+
+    ctx.restore();
+  }
+
+  // Core update
+  function step(dt) {
+    const speed = parseFloat(elSpeed.value);
+    const interval = clamp(parseFloat(elInterval.value) || 1.5, 0.3, 10);
+    const waveSpeed = clamp(parseFloat(elWaveSpeed.value) || 320, 80, 900);
+    const tol = clamp(parseFloat(elTol.value) || 10, 2, 40);
+
+    // time
+    t += dt * speed;
+
+    // update satellite
+    state.satPhase = (state.satPhase + dt * speed * state.satAngularSpeed) % TAU;
+
+    // emit periodically
+    emitAcc += dt * speed;
+    while (emitAcc >= interval) {
+      emitAcc -= interval;
+      emitWave();
+    }
+
+    // update waves
+    for (const w of state.waves) {
+      w.age += dt * speed;
+      w.r += dt * speed * waveSpeed;
+    }
+    // remove old waves
+    const rect = canvas.getBoundingClientRect();
+    const maxR = Math.hypot(rect.width, rect.height) + 200;
+    state.waves = state.waves.filter(w => w.r < maxR && w.age < 12);
+
+    // detect receptions
+    const {x: sx, y: sy} = satellitePos();
+    for (const rx of state.receivers) {
+      // decay flash
+      rx.flash = Math.max(0, rx.flash - dt * 1.8);
+
+      // must be visible (line of sight)
+      if (!isVisibleFromReceiver(sx, sy, rx)) continue;
+
+      // wavefront arrival: when |dist - r| < tol
+      const d = dist(sx, sy, rx.x, rx.y);
+
+      for (const w of state.waves) {
+        // wave originates at satellite location at emission time:
+        // but we stored wave origin fixed at emission point. So use distance from wave origin:
+        const dw = dist(w.x, w.y, rx.x, rx.y);
+        if (Math.abs(dw - w.r) <= tol) {
+          // prevent spamming: per receiver & per wave, allow once
+          const key = `${w.id}`;
+          if (rx._hitWaveId === key) continue;
+          rx._hitWaveId = key;
+
+          rx.flash = 1;
+          rx.lastHitAt = t;
+          log(`接收器#${rx.id} 接收到信号（波#${w.id}，可见，距离≈${dw.toFixed(0)}px）。`);
+          break;
+        }
+      }
+    }
+  }
+
+  function render() {
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+
+    drawBackgroundStars(w, h);
+
+    // update derived positions
+    updateReceiverPositions();
+    const {cx, cy} = getCenter();
+
+    drawOrbit(cx, cy);
+    drawEarth(cx, cy);
+
+    const {x: sx, y: sy} = satellitePos();
+
+    drawLOS(sx, sy);
+    drawWaves();
+    drawReceivers();
+    drawSatellite(sx, sy);
+
+    drawHUD(cx, cy, sx, sy);
+  }
+
+  function loop(now) {
+    const dt = Math.min(0.033, (now - last) / 1000);
+    last = now;
+
+    if (running) step(dt);
+    render();
+
+    requestAnimationFrame(loop);
+  }
+
+  // Canvas click: add receiver if click near Earth surface
+  canvas.addEventListener('pointerdown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const {cx, cy} = getCenter();
+    const d = dist(x, y, cx, cy);
+    const r = state.earthRadius;
+    if (Math.abs(d - r) <= 14) {
+      const angle = Math.atan2(y - cy, x - cx);
+      addReceiver(angle);
+    } else {
+      log(`提示：请点击地球边缘（半径附近）添加接收器。`, 'muted');
+    }
+  });
+
+  // Keyboard shortcuts
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      setRunning(!running);
+    } else if (e.key.toLowerCase() === 'r') {
+      resetScene();
+    }
+  });
+
+  // Buttons
+  btnToggle.addEventListener('click', () => setRunning(!running));
+  btnEmit.addEventListener('click', () => {
+    emitWave();
+    log(`卫星：手动发射信号（波#${state.nextWaveId - 1}）。`, 'muted');
+  });
+  btnClear.addEventListener('click', () => {
+    state.waves = [];
+    log(`系统：已清空信号波。`, 'muted');
+  });
+  btnReset.addEventListener('click', () => resetScene());
+
+  // Init
+  resize();
+  resetScene();
+  requestAnimationFrame((n) => { last = n; loop(n); });
+})();
+</script>
+</body>
+</html>
